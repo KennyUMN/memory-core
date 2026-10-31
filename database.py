@@ -4,7 +4,8 @@ import re
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
-import numpy as np
+import array
+import math
 from config import DB_PATH
 
 DUPLICATE_THRESHOLD = 0.90
@@ -36,7 +37,19 @@ def redact_data(v: Any) -> Any:
 
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     # Since Qwen3 embeddings are normalized, dot product = cosine similarity
-    return float(np.dot(np.asarray(v1, dtype=np.float32), np.asarray(v2, dtype=np.float32)))
+    # math.sumprod is C-implemented; numpy is avoided because its wheels need SSE4.2,
+    # which the home server's CPU lacks.
+    return math.sumprod(v1, v2)
+
+
+def vector_from_blob(blob: bytes) -> array.array:
+    vec = array.array("f")
+    vec.frombytes(blob)
+    return vec
+
+
+def vector_to_blob(vec: List[float]) -> bytes:
+    return array.array("f", vec).tobytes()
 
 class MemoryDatabase:
     def __init__(self, db_path = DB_PATH):
@@ -231,7 +244,7 @@ class MemoryDatabase:
 
             existing_ids = [r["id"] for r in active_rows]
             existing_contents = [r["content"] for r in active_rows]
-            existing_vectors = [np.frombuffer(r["embedding"], dtype=np.float32) for r in active_rows]
+            existing_vectors = [vector_from_blob(r["embedding"]) for r in active_rows]
 
             emb_list = list(embeddings) + [None] * max(0, len(facts) - len(embeddings))
 
@@ -252,20 +265,18 @@ class MemoryDatabase:
                     pending_embedding_ids.append(new_id)
                     continue
 
-                emb_vec = np.array(emb, dtype=np.float32)
+                emb_vec = array.array("f", emb)
 
                 # Check near-duplicates if there are existing vectors
                 is_duplicate = False
                 top_match = None
 
                 if existing_vectors:
-                    matrix = np.vstack(existing_vectors)
-                    sims = matrix @ emb_vec
-                    match_indices = np.where(sims >= duplicate_threshold)[0]
-                    if len(match_indices) > 0:
+                    sims = [cosine_similarity(v, emb_vec) for v in existing_vectors]
+                    match_indices = [i for i, s in enumerate(sims) if s >= duplicate_threshold]
+                    if match_indices:
                         is_duplicate = True
-                        best_match_subidx = int(np.argmax(sims[match_indices]))
-                        best_idx = int(match_indices[best_match_subidx])
+                        best_idx = max(match_indices, key=sims.__getitem__)
                         top_match = {
                             "fact": clean_content,
                             "existing_id": existing_ids[best_idx],
@@ -357,12 +368,9 @@ class MemoryDatabase:
                     vector_candidates.append((mid, r["embedding"]))
 
             if vector_candidates and query_embedding is not None:
-                mids = [vc[0] for vc in vector_candidates]
-                matrix = np.vstack([np.frombuffer(vc[1], dtype=np.float32) for vc in vector_candidates])
-                q = np.array(query_embedding, dtype=np.float32)
-                sims = matrix @ q
-                for mid, sim in zip(mids, sims):
-                    scored_vector_list.append((mid, float(sim)))
+                q = array.array("f", query_embedding)
+                for mid, blob in vector_candidates:
+                    scored_vector_list.append((mid, cosine_similarity(vector_from_blob(blob), q)))
 
             # Sort by vector similarity descending
             scored_vector_list.sort(key=lambda x: x[1], reverse=True)
@@ -439,7 +447,7 @@ class MemoryDatabase:
             return [(r["id"], r["content"]) for r in rows]
 
     def set_embedding(self, memory_id: int, embedding: List[float]) -> None:
-        emb_blob = np.array(embedding, dtype=np.float32).tobytes()
+        emb_blob = vector_to_blob(embedding)
         with self._get_conn() as conn:
             conn.execute(
                 "UPDATE memories SET embedding = ? WHERE id = ?",

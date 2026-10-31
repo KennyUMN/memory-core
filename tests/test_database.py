@@ -3,41 +3,44 @@ import shutil
 import sqlite3
 import logging
 from pathlib import Path
+import array
+import math
+import random
 from typing import List
-import numpy as np
 import pytest
 
 from database import MemoryDatabase, DUPLICATE_THRESHOLD, redact_secrets
 from usage import LoggedDatabase
 
-REAL_DB_PATH = Path("/private/tmp/claude-501/-Users-kennyvws/d829081c-9f90-4c2d-b51a-08f43c48f2a4/scratchpad/mc-code/memory.db")
+# Optional: point at a copy of a production DB snapshot to test the migration on real data.
+REAL_DB_PATH = Path(os.getenv("MEMORY_CORE_SNAPSHOT_DB", ""))
+
+
+def _normalize(v: List[float]) -> List[float]:
+    norm = math.sqrt(math.sumprod(v, v))
+    return [x / norm for x in v]
 
 
 def make_embedding(seed: int, dim: int = 1024) -> List[float]:
     """Deterministic normalized 1024-dim vector."""
-    rng = np.random.RandomState(seed)
-    v = rng.randn(dim).astype(np.float32)
-    norm = np.linalg.norm(v)
-    return (v / norm).tolist()
+    rng = random.Random(seed)
+    return _normalize([rng.gauss(0.0, 1.0) for _ in range(dim)])
 
 
 def make_near_embedding(base_emb: List[float], target_sim: float = 0.95, seed: int = 999) -> List[float]:
     """Generate a vector with exact target cosine similarity to base_emb."""
-    v1 = np.array(base_emb, dtype=np.float32)
-    dim = len(v1)
-    rng = np.random.RandomState(seed)
-    v2 = rng.randn(dim).astype(np.float32)
+    rng = random.Random(seed)
+    v2 = [rng.gauss(0.0, 1.0) for _ in base_emb]
     # Gram-Schmidt orthogonalization
-    v2_ortho = v2 - np.dot(v1, v2) * v1
-    v2_ortho = v2_ortho / np.linalg.norm(v2_ortho)
-    target_vec = target_sim * v1 + np.sqrt(max(0.0, 1.0 - target_sim**2)) * v2_ortho
-    target_vec = target_vec / np.linalg.norm(target_vec)
-    return target_vec.tolist()
+    proj = math.sumprod(base_emb, v2)
+    v2_ortho = _normalize([b - proj * a for a, b in zip(base_emb, v2)])
+    w = math.sqrt(max(0.0, 1.0 - target_sim**2))
+    return _normalize([target_sim * a + w * b for a, b in zip(base_emb, v2_ortho)])
 
 
+@pytest.mark.skipif(not REAL_DB_PATH.is_file(), reason="MEMORY_CORE_SNAPSHOT_DB not set")
 def test_real_db_snapshot_migration(tmp_path):
     """Verify migration on a copy of the real DB snapshot: row count 491, ids preserved, FTS matches."""
-    assert REAL_DB_PATH.exists(), f"Real DB snapshot missing at {REAL_DB_PATH}"
 
     copy_db = tmp_path / "real_copy.db"
     shutil.copyfile(REAL_DB_PATH, copy_db)
@@ -120,7 +123,7 @@ def test_synthetic_old_schema_migration(tmp_path):
             INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
         END;
     """)
-    v = np.array(make_embedding(1), dtype=np.float32).tobytes()
+    v = array.array("f", make_embedding(1)).tobytes()
     conn.execute(
         "INSERT INTO memories (id, kind, scope, content, embedding, created_by, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (10, "fact", "global", "Ancient fact ten", v, "system", "2026-01-01")
