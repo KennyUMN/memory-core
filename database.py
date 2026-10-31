@@ -65,6 +65,8 @@ class MemoryDatabase:
                 if embedding_notnull == 1:
                     # Idempotent migration: rebuild table to make embedding nullable
                     conn.execute("PRAGMA foreign_keys=OFF")
+                    # A crash mid-migration can leave this behind; start clean.
+                    conn.execute("DROP TABLE IF EXISTS memories_new")
                     conn.execute("""
                         CREATE TABLE memories_new (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
