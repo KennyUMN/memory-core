@@ -8,8 +8,9 @@ I run it on a home server and use it daily across agents, so a fact one agent le
 
 - **MCP server** at `/mcp` with six tools: `memory_profile`, `memory_recall`, `memory_remember`, `memory_forget`, `memory_timeline`, `memory_search_docs`.
 - **REST API** under `/api/v1/*` (remember, recall, forget, browse, stats, usage, events) for scripts and non-MCP clients.
-- **Hybrid retrieval**: SQLite FTS5 (BM25) plus dense embeddings (Qwen3-Embedding-0.6B through any OpenAI-compatible endpoint), fused with Reciprocal Rank Fusion. If the embedding service is down, recall falls back to BM25 instead of failing.
-- **Write hygiene**: near-duplicate detection on `remember` (cosine ≥ 0.86 within a scope), explicit `supersedes` for replacing old facts, soft-delete with a reason on `forget`, and automatic redaction of API keys and tokens before storage.
+- **Hybrid retrieval**: SQLite FTS5 (BM25) plus dense embeddings (Qwen3-Embedding-0.6B through any OpenAI-compatible endpoint), fused with Reciprocal Rank Fusion. If the embedding service is down, recall falls back to BM25 instead of failing. Memories with NULL embeddings remain retrievable via BM25.
+- **Write hygiene**: near-duplicate detection on `remember` (cosine ≥ 0.90 within a scope, skipped when dedup=True), explicit `supersedes` for replacing old facts, soft-delete with a reason on `forget` (persisted in `retired_reason`), and automatic redaction of API keys, AWS keys, PEM private keys, and tokens before storage.
+- **Resilient embeddings**: nullable embeddings allow saving memories when the embedder is unavailable (tracking pending row IDs for backfill via `missing_embeddings` and `set_embedding`).
 - **Per-agent auth and usage log**: each agent gets its own bearer token; every recall, remember, and forget is logged with the agent name, so the dashboard shows who uses what.
 - **Dashboard** at `/dashboard` for browsing memories, usage, and history.
 - **Backups**: `backup.py` takes a consistent SQLite snapshot and keeps the newest 14.

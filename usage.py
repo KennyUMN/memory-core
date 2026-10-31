@@ -125,8 +125,10 @@ class LoggedDatabase(MemoryDatabase):
             "remember", scope=kwargs.get("scope", "global"), query=(facts[0][:200] if facts else None),
             ids=res["saved_ids"], served_chars=sum(len(f) for f in facts),
             latency_ms=(time.perf_counter() - start) * 1000,
-            detail={"facts": len(facts), "near_duplicates": len(res["near_duplicates"]),
-                    "supersedes": kwargs.get("supersedes")},
+            detail={"facts": len(facts), "near_duplicates": len(res.get("near_duplicates", [])),
+                    "supersedes": kwargs.get("supersedes"),
+                    "skipped": len(res.get("skipped", [])),
+                    "pending_embeddings": len(res.get("pending_embedding_ids", []))},
         )
         return res
 
@@ -217,7 +219,7 @@ class LoggedDatabase(MemoryDatabase):
     def memory_detail(self, memory_id: int) -> Optional[Dict[str, Any]]:
         with self._get_conn() as conn:
             m = conn.execute(
-                "SELECT id, kind, scope, content, source, tags, created_by, valid_from, valid_to, verified_at "
+                "SELECT id, kind, scope, content, source, tags, created_by, valid_from, valid_to, verified_at, retired_reason "
                 "FROM memories WHERE id = ?", (memory_id,)).fetchone()
             if not m:
                 return None

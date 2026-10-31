@@ -1,17 +1,22 @@
 import sqlite3
 import json
 import re
-import array
-import math
+import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
+import numpy as np
 from config import DB_PATH
+
+DUPLICATE_THRESHOLD = 0.90
 
 SECRET_PATTERNS = [
     re.compile(r'(?i)(?:api_key|token|bearer|secret|password|access_key)[\s:=]+["\']?([a-zA-Z0-9_\-\.]{16,})["\']?'),
     re.compile(r'ghp_[a-zA-Z0-9]{36}'),
+    re.compile(r'github_pat_[a-zA-Z0-9_]+'),
     re.compile(r'xox[baprs]-[a-zA-Z0-9\-]+'),
-    re.compile(r'sk-(?:ant-|proj-)?[a-zA-Z0-9_\-]{20,}')
+    re.compile(r'sk-(?:ant-|proj-)?[a-zA-Z0-9_\-]{20,}'),
+    re.compile(r'AKIA[0-9A-Z]{16}'),
+    re.compile(r'-----BEGIN (?:[A-Z0-9_-]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9_-]+ )?PRIVATE KEY-----'),
 ]
 
 def redact_secrets(text: str) -> str:
@@ -20,9 +25,18 @@ def redact_secrets(text: str) -> str:
         cleaned = pattern.sub('[REDACTED_SECRET]', cleaned)
     return cleaned
 
+def redact_data(v: Any) -> Any:
+    if isinstance(v, str):
+        return redact_secrets(v)
+    if isinstance(v, dict):
+        return {k: redact_data(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [redact_data(x) for x in v]
+    return v
+
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     # Since Qwen3 embeddings are normalized, dot product = cosine similarity
-    return float(math.fsum(x * y for x, y in zip(v1, v2)))
+    return float(np.dot(np.asarray(v1, dtype=np.float32), np.asarray(v2, dtype=np.float32)))
 
 class MemoryDatabase:
     def __init__(self, db_path = DB_PATH):
@@ -38,19 +52,97 @@ class MemoryDatabase:
 
     def _init_db(self):
         with self._get_conn() as conn:
+            # Check if memories table already exists to detect if migration is needed
+            table_check = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='memories'"
+            ).fetchone()
+
+            if table_check:
+                cols = {r["name"]: r for r in conn.execute("PRAGMA table_info(memories)").fetchall()}
+                embedding_col = cols.get("embedding")
+                embedding_notnull = embedding_col["notnull"] if embedding_col else 0
+
+                if embedding_notnull == 1:
+                    # Idempotent migration: rebuild table to make embedding nullable
+                    conn.execute("PRAGMA foreign_keys=OFF")
+                    conn.execute("""
+                        CREATE TABLE memories_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            kind TEXT NOT NULL,
+                            scope TEXT NOT NULL,
+                            content TEXT NOT NULL,
+                            embedding BLOB,
+                            source TEXT,
+                            tags TEXT,
+                            created_by TEXT NOT NULL,
+                            valid_from TEXT NOT NULL,
+                            valid_to TEXT,
+                            verified_at TEXT,
+                            retired_reason TEXT
+                        )
+                    """)
+                    old_col_names = set(cols.keys())
+                    copy_cols = [c for c in [
+                        "id", "kind", "scope", "content", "embedding", "source", "tags",
+                        "created_by", "valid_from", "valid_to", "verified_at", "retired_reason"
+                    ] if c in old_col_names]
+                    cols_str = ", ".join(copy_cols)
+                    conn.execute(f"INSERT INTO memories_new ({cols_str}) SELECT {cols_str} FROM memories")
+
+                    max_id_row = conn.execute("SELECT MAX(id) FROM memories").fetchone()
+                    max_id = max_id_row[0] if max_id_row and max_id_row[0] is not None else 0
+
+                    conn.execute("DROP TRIGGER IF EXISTS trg_memories_ai")
+                    conn.execute("DROP TRIGGER IF EXISTS trg_memories_ad")
+                    conn.execute("DROP TRIGGER IF EXISTS trg_memories_au")
+                    conn.execute("DROP TABLE memories")
+                    conn.execute("ALTER TABLE memories_new RENAME TO memories")
+
+                    if max_id > 0:
+                        conn.execute("INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('memories', ?)", (max_id,))
+
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_valid_to ON memories(valid_to)")
+
+                    conn.execute("""
+                        CREATE TRIGGER IF NOT EXISTS trg_memories_ai AFTER INSERT ON memories BEGIN
+                            INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
+                        END
+                    """)
+                    conn.execute("""
+                        CREATE TRIGGER IF NOT EXISTS trg_memories_ad AFTER DELETE ON memories BEGIN
+                            INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', old.id, old.content);
+                        END
+                    """)
+                    conn.execute("""
+                        CREATE TRIGGER IF NOT EXISTS trg_memories_au AFTER UPDATE ON memories BEGIN
+                            INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', old.id, old.content);
+                            INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
+                        END
+                    """)
+
+                    fts_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memories_fts'").fetchone()
+                    if fts_check:
+                        conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')")
+                else:
+                    if "retired_reason" not in cols:
+                        conn.execute("ALTER TABLE memories ADD COLUMN retired_reason TEXT")
+
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS memories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     kind TEXT NOT NULL,
                     scope TEXT NOT NULL,
                     content TEXT NOT NULL,
-                    embedding BLOB NOT NULL,
+                    embedding BLOB,
                     source TEXT,
                     tags TEXT,
                     created_by TEXT NOT NULL,
                     valid_from TEXT NOT NULL,
                     valid_to TEXT,
-                    verified_at TEXT
+                    verified_at TEXT,
+                    retired_reason TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope);
@@ -91,29 +183,35 @@ class MemoryDatabase:
 
     def set_profile(self, key: str, value: str):
         now = datetime.now(timezone.utc).isoformat()
+        clean_value = redact_secrets(value)
         with self._get_conn() as conn:
             conn.execute("""
                 INSERT INTO profile (key, value, updated_at) VALUES (?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
-            """, (key, value, now))
+            """, (key, clean_value, now))
 
     def remember(
         self,
         facts: List[str],
-        embeddings: List[List[float]],
+        embeddings: List[Optional[List[float]]],
         kind: str = "fact",
         scope: str = "global",
         supersedes: Optional[int] = None,
         tags: Optional[List[str]] = None,
         source: Optional[Dict[str, Any]] = None,
         created_by: str = "system",
-        duplicate_threshold: float = 0.86
+        duplicate_threshold: float = DUPLICATE_THRESHOLD,
+        dedup: bool = True
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
-        tags_str = json.dumps(tags or [])
-        source_str = json.dumps(source or {})
+        clean_tags = redact_data(tags or [])
+        clean_source = redact_data(source or {})
+        tags_str = json.dumps(clean_tags)
+        source_str = json.dumps(clean_source)
         saved_ids = []
         near_duplicates = []
+        skipped = []
+        pending_embedding_ids = []
 
         with self._get_conn() as conn:
             if supersedes is not None:
@@ -122,58 +220,89 @@ class MemoryDatabase:
                     (now, supersedes)
                 )
 
-            # Pre-load active memory embeddings in same scope for near-duplicate check
+            # Pre-load active memory embeddings in same scope for near-duplicate check.
+            # Rows with NULL embedding are ignored by the dedup scan.
             active_rows = conn.execute(
-                "SELECT id, content, embedding FROM memories WHERE scope = ? AND valid_to IS NULL",
+                "SELECT id, content, embedding FROM memories WHERE scope = ? AND valid_to IS NULL AND embedding IS NOT NULL",
                 (scope,)
             ).fetchall()
 
-            existing_records = []
-            for r in active_rows:
-                arr = array.array("f")
-                arr.frombytes(r["embedding"])
-                existing_records.append({
-                    "id": r["id"],
-                    "content": r["content"],
-                    "vec": arr.tolist()
-                })
+            existing_ids = [r["id"] for r in active_rows]
+            existing_contents = [r["content"] for r in active_rows]
+            existing_vectors = [np.frombuffer(r["embedding"], dtype=np.float32) for r in active_rows]
 
-            for content, emb in zip(facts, embeddings):
+            emb_list = list(embeddings) + [None] * max(0, len(facts) - len(embeddings))
+
+            for content, emb in zip(facts, emb_list):
                 clean_content = redact_secrets(content.strip())
                 if not clean_content:
                     continue
 
-                # Check near-duplicates (similarity >= duplicate_threshold)
-                for rec in existing_records:
-                    sim = cosine_similarity(rec["vec"], emb)
-                    if sim >= duplicate_threshold:
-                        near_duplicates.append({
-                            "existing_id": rec["id"],
-                            "existing_content": rec["content"],
-                            "similarity": round(sim, 4),
-                            "new_fact": clean_content
-                        })
+                if emb is None:
+                    # Embedder down / embedding missing: store with embedding NULL, skip dedup
+                    cur = conn.execute("""
+                        INSERT INTO memories (
+                            kind, scope, content, embedding, source, tags, created_by, valid_from, valid_to, verified_at, retired_reason
+                        ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, NULL, NULL, NULL)
+                    """, (kind, scope, clean_content, source_str, tags_str, created_by, now))
+                    new_id = cur.lastrowid
+                    saved_ids.append(new_id)
+                    pending_embedding_ids.append(new_id)
+                    continue
 
-                # Insert fact
-                emb_blob = array.array("f", emb).tobytes()
+                emb_vec = np.array(emb, dtype=np.float32)
+
+                # Check near-duplicates if there are existing vectors
+                is_duplicate = False
+                top_match = None
+
+                if existing_vectors:
+                    matrix = np.vstack(existing_vectors)
+                    sims = matrix @ emb_vec
+                    match_indices = np.where(sims >= duplicate_threshold)[0]
+                    if len(match_indices) > 0:
+                        is_duplicate = True
+                        best_match_subidx = int(np.argmax(sims[match_indices]))
+                        best_idx = int(match_indices[best_match_subidx])
+                        top_match = {
+                            "fact": clean_content,
+                            "existing_id": existing_ids[best_idx],
+                            "similarity": round(float(sims[best_idx]), 4)
+                        }
+                        for idx in match_indices:
+                            near_duplicates.append({
+                                "existing_id": existing_ids[idx],
+                                "existing_content": existing_contents[idx],
+                                "similarity": round(float(sims[idx]), 4),
+                                "new_fact": clean_content
+                            })
+
+                if dedup and is_duplicate:
+                    if top_match:
+                        skipped.append(top_match)
+                    continue
+
+                # Not skipped (either not duplicate, or dedup=False): insert fact
+                emb_blob = emb_vec.tobytes()
                 cur = conn.execute("""
                     INSERT INTO memories (
-                        kind, scope, content, embedding, source, tags, created_by, valid_from, valid_to, verified_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
-                """, (kind, scope, clean_content, emb_blob, source_str, tags_str, created_by, now, now))
-                saved_ids.append(cur.lastrowid)
+                        kind, scope, content, embedding, source, tags, created_by, valid_from, valid_to, verified_at, retired_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+                """, (kind, scope, clean_content, emb_blob, source_str, tags_str, created_by, now))
+                new_id = cur.lastrowid
+                saved_ids.append(new_id)
 
-                # Add to existing_records for consecutive batch items
-                existing_records.append({
-                    "id": cur.lastrowid,
-                    "content": clean_content,
-                    "vec": emb
-                })
+                # Add to existing records for subsequent batch items
+                existing_ids.append(new_id)
+                existing_contents.append(clean_content)
+                existing_vectors.append(emb_vec)
 
         return {
             "saved_ids": saved_ids,
             "near_duplicates": near_duplicates,
-            "count": len(saved_ids)
+            "skipped": skipped,
+            "count": len(saved_ids),
+            "pending_embedding_ids": pending_embedding_ids,
         }
 
     def recall(
@@ -195,17 +324,15 @@ class MemoryDatabase:
                 placeholders = ",".join("?" * len(kinds))
                 where_clauses.append(f"kind IN ({placeholders})")
                 params.extend(kinds)
+
+            # Scope filtering:
+            # scope=None or "all" applies no scope filter (searches across all scopes).
+            # When scope is set, "global" memories are always included alongside the target scope.
             if scope and scope != "all":
-                allowed_scopes = ["global"]
-                if scope.startswith("project:"):
-                    allowed_scopes.append(scope)
-                elif scope.startswith("agent:"):
-                    allowed_scopes.append(scope)
-                elif scope.startswith("session:"):
-                    allowed_scopes.append(scope)
+                if scope == "global":
+                    allowed_scopes = ["global"]
                 else:
-                    allowed_scopes.append(scope)
-                
+                    allowed_scopes = ["global", scope]
                 placeholders = ",".join("?" * len(allowed_scopes))
                 where_clauses.append(f"scope IN ({placeholders})")
                 params.extend(allowed_scopes)
@@ -220,15 +347,20 @@ class MemoryDatabase:
             # 1. Vector Ranking
             cand_rows = {}
             scored_vector_list = []
+            vector_candidates = []
             for r in rows:
                 mid = r["id"]
                 cand_rows[mid] = r
-                if query_embedding is None:
-                    continue  # embedding unavailable: BM25-only fallback
-                arr = array.array("f")
-                arr.frombytes(r["embedding"])
-                sim = cosine_similarity(arr.tolist(), query_embedding)
-                scored_vector_list.append((mid, sim))
+                if query_embedding is not None and r["embedding"] is not None:
+                    vector_candidates.append((mid, r["embedding"]))
+
+            if vector_candidates and query_embedding is not None:
+                mids = [vc[0] for vc in vector_candidates]
+                matrix = np.vstack([np.frombuffer(vc[1], dtype=np.float32) for vc in vector_candidates])
+                q = np.array(query_embedding, dtype=np.float32)
+                sims = matrix @ q
+                for mid, sim in zip(mids, sims):
+                    scored_vector_list.append((mid, float(sim)))
 
             # Sort by vector similarity descending
             scored_vector_list.sort(key=lambda x: x[1], reverse=True)
@@ -237,7 +369,7 @@ class MemoryDatabase:
 
             # 2. BM25 / Keyword Search via FTS5
             clean_q = re.sub(r'[^\w\s]', ' ', query).strip()
-            terms = [f'"{t}"' for t in clean_q.split() if len(t) > 1]
+            terms = [f'"{t}"' for t in clean_q.split() if len(t) >= 1 and any(c.isalnum() for c in t)]
             fts_ranks = {}
             if terms:
                 fts_query = " OR ".join(terms)
@@ -254,8 +386,8 @@ class MemoryDatabase:
                         rid = fts_r["rowid"]
                         if rid in cand_rows:
                             fts_ranks[rid] = rank + 1
-                except sqlite3.OperationalError:
-                    pass
+                except sqlite3.OperationalError as exc:
+                    logging.warning("FTS query failed for %r: %s", fts_query, exc)
 
             # 3. Reciprocal Rank Fusion (RRF)
             all_match_ids = set(vector_ranks.keys()).union(set(fts_ranks.keys()))
@@ -291,14 +423,30 @@ class MemoryDatabase:
         now = datetime.now(timezone.utc).isoformat()
         with self._get_conn() as conn:
             cur = conn.execute(
-                "UPDATE memories SET valid_to = ? WHERE id = ? AND valid_to IS NULL",
-                (now, memory_id)
+                "UPDATE memories SET valid_to = ?, retired_reason = ? WHERE id = ? AND valid_to IS NULL",
+                (now, reason, memory_id)
             )
             return cur.rowcount > 0
 
+    def missing_embeddings(self, limit: int = 32) -> List[Tuple[int, str]]:
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, content FROM memories WHERE valid_to IS NULL AND embedding IS NULL ORDER BY id ASC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            return [(r["id"], r["content"]) for r in rows]
+
+    def set_embedding(self, memory_id: int, embedding: List[float]) -> None:
+        emb_blob = np.array(embedding, dtype=np.float32).tobytes()
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE memories SET embedding = ? WHERE id = ?",
+                (emb_blob, memory_id)
+            )
+
     def get_timeline(self, scope: str = "global", since: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
-            sql = "SELECT id, kind, scope, content, source, created_by, valid_from FROM memories WHERE kind = 'episode'"
+            sql = "SELECT id, kind, scope, content, source, created_by, valid_from FROM memories WHERE kind = 'episode' AND valid_to IS NULL"
             params = []
             if scope != "all":
                 sql += " AND (scope = ? OR scope = 'global')"
@@ -344,12 +492,26 @@ class MemoryDatabase:
         with self._get_conn() as conn:
             total = conn.execute("SELECT COUNT(*) FROM memories" + clause, params).fetchone()[0]
             rows = conn.execute(
-                "SELECT id, kind, scope, content, tags, created_by, valid_from, valid_to FROM memories"
+                "SELECT id, kind, scope, content, tags, created_by, valid_from, valid_to, verified_at, retired_reason FROM memories"
                 + clause + " ORDER BY id DESC LIMIT ? OFFSET ?",
                 params + [limit, offset],
             ).fetchall()
         items = [{**{k: r[k] for k in r.keys() if k != "tags"}, "tags": json.loads(r["tags"] or "[]")} for r in rows]
         return {"total": total, "items": items}
+
+    def memory_detail(self, memory_id: int) -> Optional[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            m = conn.execute(
+                "SELECT id, kind, scope, content, source, tags, created_by, valid_from, valid_to, verified_at, retired_reason "
+                "FROM memories WHERE id = ?", (memory_id,)
+            ).fetchone()
+            if not m:
+                return None
+            return {
+                **dict(m),
+                "tags": json.loads(m["tags"] or "[]"),
+                "source": json.loads(m["source"] or "{}")
+            }
 
     def stats(self, days: int = 30) -> Dict[str, Any]:
         with self._get_conn() as conn:
