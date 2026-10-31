@@ -1,5 +1,5 @@
 import asyncio
-from typing import Annotated, List, Optional, Dict, Any
+from typing import Annotated, List, Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Request, Depends, status
 from fastapi.responses import JSONResponse, HTMLResponse, Response
@@ -12,11 +12,13 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
 from config import HOST, PORT, TOKENS
-from embedder import EmbedderClient, EmbeddingError
+from embedder import EmbedderClient, EmbeddingError, CircuitOpenError
 from database import redact_secrets
 from usage import LoggedDatabase, current_agent, current_source
 
 MAX_FACTS, MAX_FACT_CHARS, MAX_K, MAX_QUERY_CHARS = 100, 20000, 50, 2000
+BACKFILL_INTERVAL = 60.0
+BACKFILL_BATCH_SIZE = 32
 
 # Initialize embedder & DB
 embedder = EmbedderClient()
@@ -42,6 +44,52 @@ async def embed_query_or_none(query: str) -> Optional[List[float]]:
     except (httpx.HTTPError, EmbeddingError) as exc:
         log.warning("embedding unavailable, recall degraded to BM25-only: %s", exc)
         return None
+
+
+async def backfill_embeddings_once() -> int:
+    """Run one iteration of backfilling missing embeddings. Returns count of embeddings updated."""
+    if getattr(embedder, "is_circuit_open", False):
+        log.debug("Skipping backfill: circuit breaker is open")
+        return 0
+
+    try:
+        missing: List[Tuple[int, str]] = await asyncio.to_thread(db.missing_embeddings, BACKFILL_BATCH_SIZE)
+        if not missing:
+            return 0
+
+        ids = [item[0] for item in missing]
+        texts = [item[1] for item in missing]
+
+        embeddings = await embedder.embed_passages(texts)
+        for mem_id, emb in zip(ids, embeddings):
+            await asyncio.to_thread(db.set_embedding, mem_id, emb)
+        return len(ids)
+    except CircuitOpenError:
+        log.debug("Skipping backfill: circuit breaker is open")
+        return 0
+    except (httpx.HTTPError, EmbeddingError) as exc:
+        log.warning("Embedding backfill iteration failed: %s", exc)
+        return 0
+    except Exception as exc:
+        log.warning("Unexpected error during embedding backfill: %s", exc)
+        return 0
+
+
+async def backfill_loop():
+    """Background task running every BACKFILL_INTERVAL to backfill missing embeddings."""
+    while True:
+        try:
+            await backfill_embeddings_once()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            log.warning("Error in background backfill loop: %s", exc)
+
+        try:
+            await asyncio.sleep(BACKFILL_INTERVAL)
+        except asyncio.CancelledError:
+            break
+
 
 # Initialize MCP Server
 mcp = MCPServer("memory-core")
@@ -83,7 +131,8 @@ async def memory_recall(
     query, k = redact_secrets(query[:MAX_QUERY_CHARS]), max(1, min(k, MAX_K))
     # Generate query embedding with task instruction
     q_emb = await embed_query_or_none(query)
-    results = db.recall(
+    results = await asyncio.to_thread(
+        db.recall,
         query=query,
         query_embedding=q_emb,
         scope=scope,
@@ -106,7 +155,7 @@ async def memory_remember(
     agent_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Remember one or more atomic, standalone facts or procedures.
-    Automatically checks for near-duplicates (similarity >= 0.90) and redacts secrets.
+    Duplicates at similarity >= 0.90 in the same scope are skipped (not inserted) and reported. Redacts secrets automatically.
     
     Args:
         facts: List of short standalone sentences (one fact per string)
@@ -120,9 +169,16 @@ async def memory_remember(
         return {"saved_ids": [], "near_duplicates": [], "count": 0}
     
     facts = [redact_secrets(f) for f in facts[:MAX_FACTS]]
-    # Embed passages without query prefix
-    embeddings = await embedder.embed_passages(facts)
-    res = db.remember(
+    embedding_failed = False
+    try:
+        embeddings = await embedder.embed_passages(facts)
+    except (httpx.HTTPError, EmbeddingError) as exc:
+        log.warning("Embedding failed during memory_remember, saving with pending embeddings: %s", exc)
+        embeddings = [None] * len(facts)
+        embedding_failed = True
+
+    res = await asyncio.to_thread(
+        db.remember,
         facts=facts,
         embeddings=embeddings,
         kind=kind,
@@ -131,6 +187,8 @@ async def memory_remember(
         tags=tags,
         created_by=agent_id or "mcp-agent"
     )
+    if embedding_failed:
+        res["embedding_pending"] = True
     return res
 
 @mcp.tool()
@@ -158,7 +216,13 @@ async def memory_search_docs(
         k: Top chunks to return
     """
     q_emb = await embed_query_or_none(query)
-    results = db.search_docs(query_embedding=q_emb, project=project, k=k, query=query)
+    results = await asyncio.to_thread(
+        db.search_docs,
+        query_embedding=q_emb,
+        project=project,
+        k=k,
+        query=query
+    )
     return {"results": results, "count": len(results)}
 
 @mcp.tool()
@@ -203,9 +267,18 @@ mcp_app = mcp.streamable_http_app(
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
-    async with mcp_app.router.lifespan_context(mcp_app):
-        yield
+async def lifespan(app: FastAPI):
+    backfill_task = asyncio.create_task(backfill_loop())
+    try:
+        async with mcp_app.router.lifespan_context(mcp_app):
+            yield
+    finally:
+        backfill_task.cancel()
+        try:
+            await backfill_task
+        except asyncio.CancelledError:
+            pass
+        await embedder.aclose()
 
 
 app = FastAPI(title="Memory Core API", version="1.0.0", lifespan=lifespan,
@@ -249,8 +322,16 @@ def set_profile_api(req: ProfileRequest, agent: str = Depends(verify_token)):
 @app.post("/api/v1/remember")
 async def remember_api(req: RememberRequest, agent: str = Depends(verify_token)):
     facts = [redact_secrets(f) for f in req.facts]
-    embeddings = await embedder.embed_passages(facts)
-    return db.remember(
+    embedding_failed = False
+    try:
+        embeddings = await embedder.embed_passages(facts)
+    except (httpx.HTTPError, EmbeddingError) as exc:
+        log.warning("Embedding failed during remember_api, saving with pending embeddings: %s", exc)
+        embeddings = [None] * len(facts)
+        embedding_failed = True
+
+    res = await asyncio.to_thread(
+        db.remember,
         facts=facts,
         embeddings=embeddings,
         kind=req.kind,
@@ -259,12 +340,16 @@ async def remember_api(req: RememberRequest, agent: str = Depends(verify_token))
         tags=req.tags,
         created_by=agent
     )
+    if embedding_failed:
+        res["embedding_pending"] = True
+    return res
 
 @app.post("/api/v1/recall")
 async def recall_api(req: RecallRequest, agent: str = Depends(verify_token)):
     query = redact_secrets(req.query)
     q_emb = await embed_query_or_none(query)
-    results = db.recall(
+    results = await asyncio.to_thread(
+        db.recall,
         query=query,
         query_embedding=q_emb,
         scope=req.scope,
