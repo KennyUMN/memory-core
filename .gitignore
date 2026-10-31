@@ -1,0 +1,20 @@
+# secrets
+tokens.json
+.env
+*.env
+
+# runtime data
+data/
+backups/
+*.db
+*.db-*
+*.log
+
+# local leftovers
+*.bak*
+*.pre-*
+*.before-*
+test.txt
+__pycache__/
+venv/
+.venv/

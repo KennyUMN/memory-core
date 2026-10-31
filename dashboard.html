@@ -1,0 +1,1550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>memory·core</title>
+<style>
+/* Hallmark · macrostructure: Workbench (card-catalogue reading room) · tone: archival / utilitarian · anchor hue: vermilion 29°
+ * theme: custom · vibe: "card catalogue, reading room, stamped ledger" · display: Iowan Old Style stack · data: ui-monospace
+ * axes: light paper (dark = ink-blue night room) / classical-serif + mono / warm accent · nav: N3 side-rail → top tab row
+ * Hallmark · pre-emit critique: P5 H4 E4 S5 R4 V5
+ */
+:root {
+  color-scheme: light;
+  --paper: oklch(95.8% 0.014 82);
+  --paper-sunk: oklch(92.4% 0.018 82);
+  --card: oklch(98.7% 0.008 85);
+  --ink: oklch(24% 0.02 262);
+  --ink-2: oklch(39% 0.018 262);
+  --ink-3: oklch(50% 0.014 262);
+  --rule: oklch(85% 0.016 82);
+  --rule-strong: oklch(72% 0.02 82);
+  --stamp: oklch(51% 0.175 29);
+  --stamp-rule: oklch(51% 0.175 29 / 0.5);
+  --ochre: oklch(52% 0.11 70);
+  --sea: oklch(46% 0.08 232);
+  --cold: oklch(78% 0.03 245);
+  --hot: var(--stamp);
+  --focus: oklch(48% 0.17 258);
+  --scrim: oklch(22% 0.02 262 / 0.38);
+  --grain-opacity: 0.07;
+  --grain-filter: none;
+  --shadow: 0 1px 0 oklch(84% 0.02 82), 0 10px 24px -16px oklch(30% 0.04 60 / 0.35);
+  --shadow-lg: 0 2px 0 oklch(80% 0.02 82), 0 30px 60px -24px oklch(25% 0.04 60 / 0.45);
+
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Charter, "Bitstream Charter", Georgia, ui-serif, serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+  --t-xs: 0.75rem; --t-sm: 0.8125rem; --t-base: 1rem; --t-md: 1.125rem; --t-lg: 1.3125rem; --t-xl: 1.75rem;
+  --t-2xl: clamp(1.75rem, 1.35rem + 1.5vw, 2.5rem);
+  --t-abstract: clamp(1.4rem, 1.05rem + 1.45vw, 2.25rem);
+
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.75, 0);
+  --ease-in-out: cubic-bezier(0.6, 0, 0.3, 1);
+  --dur-1: 140ms; --dur-2: 240ms; --dur-3: 560ms;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: oklch(17.5% 0.018 258);
+    --paper-sunk: oklch(14.8% 0.016 258);
+    --card: oklch(22.4% 0.022 258);
+    --ink: oklch(91.5% 0.018 85);
+    --ink-2: oklch(79% 0.016 85);
+    --ink-3: oklch(66% 0.014 85);
+    --rule: oklch(30% 0.02 258);
+    --rule-strong: oklch(42% 0.022 258);
+    --stamp: oklch(70% 0.155 36);
+    --stamp-rule: oklch(70% 0.155 36 / 0.45);
+    --ochre: oklch(80% 0.12 80);
+    --sea: oklch(77% 0.07 230);
+    --cold: oklch(46% 0.04 245);
+    --focus: oklch(80% 0.12 230);
+    --scrim: oklch(8% 0.02 258 / 0.6);
+    --grain-opacity: 0.05;
+    --grain-filter: invert(1);
+    --shadow: 0 1px 0 oklch(12% 0.02 258), 0 12px 28px -16px oklch(4% 0.02 258 / 0.8);
+    --shadow-lg: 0 2px 0 oklch(12% 0.02 258), 0 30px 60px -20px oklch(3% 0.02 258 / 0.9);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--paper); color: var(--ink); overflow-x: clip; -webkit-text-size-adjust: 100%; }
+body { margin: 0; min-height: 100dvh; font: 400 var(--t-base)/1.55 var(--font-serif); overflow-x: clip; }
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  opacity: var(--grain-opacity); filter: var(--grain-filter);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+body.no-scroll { overflow: hidden; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+h1, h2, h3 { font-style: normal; }
+p { margin: 0; }
+time { font-variant-numeric: tabular-nums; }
+
+/* Controls */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px;
+  font: 500 var(--t-sm)/1 var(--font-mono); color: var(--ink); white-space: nowrap;
+  background: var(--card); border: 1px solid var(--rule-strong); border-radius: 2px; cursor: pointer;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.btn:hover { background: var(--paper-sunk); border-color: var(--ink-3); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.btn[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn kbd { font: inherit; opacity: 0.6; }
+.btn.small { min-height: 30px; padding: 0 8px; font-size: var(--t-xs); }
+input[type="search"], input[type="password"], select {
+  min-height: 42px; max-width: 100%; padding: 0 12px;
+  font: 400 var(--t-sm)/1.2 var(--font-mono); color: var(--ink);
+  background: var(--card); border: 1px solid var(--rule-strong); border-radius: 2px;
+}
+input::placeholder { color: var(--ink-3); }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--card); }
+.seg button {
+  min-height: 40px; padding: 0 12px; border: 0; border-right: 1px solid var(--rule); background: none;
+  font: 500 var(--t-sm)/1 var(--font-mono); color: var(--ink-2); cursor: pointer; white-space: nowrap;
+}
+.seg button:last-child { border-right: 0; }
+.seg button:hover { background: var(--paper-sunk); color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+/* Shell */
+.app {
+  display: grid; min-height: 100dvh;
+  grid-template-columns: 13.5rem minmax(0, 1fr);
+  grid-template-areas: "mast mast" "spine main";
+  grid-template-rows: auto 1fr;
+}
+.mast {
+  grid-area: mast; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3) var(--sp-5);
+  padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--rule-strong);
+}
+.wm { margin: 0; font: 600 1.6rem/1 var(--font-serif); letter-spacing: -0.015em; color: var(--ink); }
+.wm b { color: var(--stamp); font-weight: 600; padding: 0 0.04em; }
+.sync { display: inline-flex; align-items: center; gap: 8px; font: var(--t-xs)/1 var(--font-mono); color: var(--ink-3); }
+.sync i { width: 8px; height: 8px; border-radius: 50%; background: var(--rule-strong); }
+.sync[data-state="ok"] i { background: var(--ink-2); animation: blink 700ms var(--ease-out) 1; }
+.sync[data-state="busy"] i { background: var(--ochre); animation: pulse 800ms var(--ease-in-out) infinite alternate; }
+.sync[data-state="err"] i { background: var(--stamp); }
+.sync[data-state="err"] { color: var(--stamp); }
+.tools { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.tools label { display: inline-flex; align-items: center; gap: 6px; font: var(--t-xs) var(--font-mono); color: var(--ink-3); }
+
+.spine {
+  grid-area: spine; position: sticky; top: 0; align-self: start;
+  display: flex; flex-direction: column; gap: 2px; padding: var(--sp-6) var(--sp-4) var(--sp-6) var(--sp-5);
+}
+.tab {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3);
+  padding: 10px 12px; border: 0; border-left: 2px solid transparent; background: none; border-radius: 0;
+  font: 400 1.125rem/1.2 var(--font-serif); color: var(--ink-2); text-align: left; cursor: pointer;
+}
+.tab kbd { font: var(--t-xs)/1 var(--font-mono); color: var(--ink-3); }
+.tab:hover { color: var(--ink); background: var(--paper-sunk); }
+.tab[aria-selected="true"] { color: var(--ink); font-weight: 600; border-left-color: var(--stamp); background: var(--card); box-shadow: var(--shadow); }
+.colophon { margin-top: var(--sp-6); padding: 0 12px; font: var(--t-xs)/1.7 var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.colophon kbd { font: inherit; color: var(--ink-2); }
+
+main { grid-area: main; min-width: 0; max-width: 76rem; padding: var(--sp-6) var(--sp-6) var(--sp-8); }
+.view { animation: enter var(--dur-2) var(--ease-out); }
+.view-head { margin-bottom: var(--sp-5); }
+.view-head h2 { margin: 0; font: 600 var(--t-2xl)/1.05 var(--font-serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.lede { margin-top: var(--sp-2); max-width: 62ch; color: var(--ink-2); }
+.fine { margin-top: var(--sp-3); max-width: 64ch; font: var(--t-xs)/1.6 var(--font-mono); color: var(--ink-3); }
+.empty { padding: var(--sp-4) 0; color: var(--ink-3); font-style: italic; }
+.notice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4); border: 1px solid var(--stamp); border-left-width: 4px; background: var(--card); color: var(--ink);
+  font: var(--t-sm)/1.4 var(--font-mono);
+}
+[aria-busy="true"] .slot:empty::before { content: "Fetching from the stacks…"; display: block; padding: var(--sp-3) 0; color: var(--ink-3); font: var(--t-sm) var(--font-mono); animation: pulse 900ms var(--ease-in-out) infinite alternate; }
+
+/* Sheets (index cards) */
+.sheet { position: relative; background: var(--card); border: 1px solid var(--rule); box-shadow: var(--shadow); padding: var(--sp-4) var(--sp-5) var(--sp-5); min-width: 0; }
+.sheet > h3 {
+  margin: 0 calc(-1 * var(--sp-5)) var(--sp-4); padding: 0 var(--sp-5) var(--sp-2);
+  font: 600 var(--t-lg)/1.2 var(--font-serif); border-bottom: 1px solid var(--stamp-rule);
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px;
+}
+.sheet > h3 small { font: 400 var(--t-xs) var(--font-mono); color: var(--ink-3); }
+
+/* Ledger */
+.abstract { font: 400 var(--t-abstract)/1.22 var(--font-serif); letter-spacing: -0.018em; max-width: 34ch; text-wrap: pretty; }
+.num { color: var(--stamp); font-weight: 600; font-variant-numeric: lining-nums tabular-nums; }
+.figures {
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: var(--sp-6) 0;
+  border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule-strong);
+}
+.figures > div { padding: var(--sp-3) var(--sp-3) var(--sp-4); border-left: 1px solid var(--rule); min-width: 0; }
+.figures > div:first-child { border-left: 0; padding-left: 0; }
+.figures dt { font: 500 var(--t-xs)/1.2 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.figures dd { margin: 8px 0 0; font: 600 var(--t-xl)/1 var(--font-serif); font-variant-numeric: lining-nums tabular-nums; overflow-wrap: anywhere; }
+.figures small { display: block; margin-top: 6px; font: var(--t-xs)/1.35 var(--font-mono); color: var(--ink-3); }
+.ledger-grid { display: grid; align-items: start; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: var(--sp-5); }
+.ledger-grid .wide { grid-column: 1 / -1; }
+.traffic svg { display: block; width: 100%; height: 150px; }
+.traffic .b-recall { fill: var(--stamp); }
+.traffic .b-remember { fill: var(--ochre); }
+.traffic .b-forget { fill: var(--ink-3); }
+.traffic .b-base { fill: var(--rule-strong); }
+.traffic .b-zero { fill: var(--rule); }
+.axis-days { display: flex; justify-content: space-between; margin-top: 6px; font: var(--t-xs) var(--font-mono); color: var(--ink-3); }
+.key { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: var(--sp-3); font: var(--t-xs)/1.4 var(--font-mono); color: var(--ink-2); }
+.key span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; background: var(--sw); }
+.reveal .wipe { animation: wipe var(--dur-3) var(--ease-out) both; }
+
+.bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.bars li { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr) auto; gap: 10px; align-items: center; font: var(--t-sm)/1.2 var(--font-mono); }
+.bars .k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bars .n { font-variant-numeric: tabular-nums; }
+.track { position: relative; height: 6px; background: var(--paper-sunk); overflow: hidden; }
+.fill { position: absolute; inset: 0; background: var(--ink-2); transform-origin: left center; transform: scaleX(var(--w, 0)); }
+.reveal .fill, .reveal .line { animation: grow var(--dur-3) var(--ease-out) both; }
+.sub-h { margin: var(--sp-5) 0 var(--sp-3); font: 600 var(--t-md)/1.2 var(--font-serif); }
+
+.big { margin-bottom: var(--sp-4); font: 400 var(--t-lg)/1.3 var(--font-serif); }
+.big .num { font-size: var(--t-xl); }
+.scale-row { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr) 4.5rem; gap: 10px; align-items: center; margin-bottom: 10px; font: var(--t-xs)/1.25 var(--font-mono); color: var(--ink-2); }
+.scale-row .track { height: 16px; }
+.scale-row .v { text-align: right; font-variant-numeric: tabular-nums; }
+.scale-row.base .fill { background: repeating-linear-gradient(135deg, var(--rule-strong) 0 2px, transparent 2px 6px); }
+.scale-row.served .fill { background: var(--stamp); }
+
+.latest { list-style: none; margin: 0; padding: 0; }
+.latest li { display: grid; grid-template-columns: 5.75rem minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 9px 0; border-bottom: 1px dotted var(--rule-strong); }
+.latest .sum { overflow-wrap: anywhere; font-size: 0.97rem; }
+.latest time { font: var(--t-xs) var(--font-mono); color: var(--ink-3); white-space: nowrap; }
+.more { margin-top: var(--sp-4); }
+
+.stamp {
+  display: inline-block; justify-self: start; padding: 4px 6px 3px; border: 1.5px solid currentColor; border-radius: 2px;
+  font: 600 0.6875rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
+}
+.t-recall { color: var(--ink-2); }
+.t-search_docs { color: var(--sea); }
+.t-remember { color: var(--ochre); }
+.t-forget, .t-retired { color: var(--stamp); }
+.t-held { color: var(--ink-2); }
+.t-other { color: var(--ink-3); }
+
+/* Stacks */
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.controls .search { flex: 1 1 16rem; min-width: 0; }
+.controls .search input { width: 100%; font: 400 1rem/1.2 var(--font-serif); }
+.controls select { flex: 0 1 auto; min-width: 0; }
+.count { min-height: 1.4em; font: var(--t-xs) var(--font-mono); color: var(--ink-3); }
+.lane-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: var(--sp-6) 0 var(--sp-3); padding-bottom: var(--sp-2); border-bottom: 2px solid var(--ink); }
+.lane-head:first-child { margin-top: var(--sp-4); }
+.lane-head h3 { margin: 0; font: 600 var(--t-lg)/1.2 var(--font-serif); overflow-wrap: anywhere; min-width: 0; }
+.lane-head small { font: var(--t-xs) var(--font-mono); color: var(--ink-3); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); gap: var(--sp-4); }
+.card {
+  position: relative; display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0;
+  padding: var(--sp-4) var(--sp-4) var(--sp-3) calc(var(--sp-4) + 6px);
+  background: var(--card); border: 1px solid var(--rule); box-shadow: var(--shadow);
+  transition: transform var(--dur-2) var(--ease-out);
+}
+.card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: color-mix(in oklab, var(--hot) var(--heat, 0%), var(--cold)); }
+.card.is-dormant::before { background: repeating-linear-gradient(to bottom, var(--cold) 0 5px, transparent 5px 9px); }
+.card.is-retired::before { background: var(--rule-strong); }
+.card:hover { transform: translateY(-2px); }
+.card:has(.card-open:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.card-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1.0625rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.card.is-retired .card-text { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--stamp-rule); }
+.card-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: auto; padding-top: var(--sp-2); border-top: 1px solid var(--rule); font: var(--t-xs)/1.45 var(--font-mono); color: var(--ink-3); }
+.card-meta .heat { color: var(--ink-2); }
+.card-open { padding: 0; border: 0; background: none; font: 600 var(--t-xs)/1.45 var(--font-mono); color: var(--stamp); cursor: pointer; }
+.card-open::after { content: ""; position: absolute; inset: 0; }
+.card-open:focus-visible { outline: none; }
+.retired-stamp { align-self: flex-start; transform: rotate(-4deg); padding: 5px 8px; border: 2px solid var(--stamp); border-radius: 3px; font: 700 0.6875rem/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--stamp); }
+.pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-top: var(--sp-6); font: var(--t-xs) var(--font-mono); color: var(--ink-3); }
+
+/* Chronicle */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-bottom: var(--sp-4); font: var(--t-xs)/1.4 var(--font-mono); color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.lg-line { width: 22px; height: 4px; border-radius: 2px; background: var(--stamp); }
+.lg-ret { width: 22px; height: 2px; background: var(--ink-3); position: relative; }
+.lg-ret::after { content: ""; position: absolute; right: -1px; top: -5px; width: 2px; height: 12px; background: var(--stamp); }
+.lg-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--stamp); }
+.lg-weak { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--ochre); }
+.chron { --label: minmax(0, 17rem); }
+.axis {
+  position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: var(--label) minmax(0, 1fr); gap: var(--sp-4);
+  padding: 8px 0; background: var(--paper); border-bottom: 1px solid var(--rule-strong);
+}
+.axis-label { font: var(--t-xs) var(--font-mono); color: var(--ink-3); }
+.axis-track { position: relative; height: 1.1rem; font: var(--t-xs)/1.1rem var(--font-mono); color: var(--ink-3); }
+.tick { position: absolute; top: 0; left: calc(var(--x) * 100%); transform: translateX(-50%); white-space: nowrap; }
+.tick.start { transform: none; }
+.tick.end { transform: translateX(-100%); color: var(--ink); font-weight: 600; }
+.lane-scope { margin: var(--sp-5) 0 var(--sp-1); font: 600 var(--t-md)/1.2 var(--font-serif); overflow-wrap: anywhere; }
+.lane-scope small { margin-left: 10px; font: 400 var(--t-xs) var(--font-mono); color: var(--ink-3); }
+.chron-row {
+  display: grid; grid-template-columns: var(--label) minmax(0, 1fr); gap: var(--sp-4); align-items: center;
+  width: 100%; padding: 7px 0; border: 0; border-bottom: 1px dotted var(--rule); background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.chron-row:hover { background: var(--paper-sunk); }
+.chron-label { position: relative; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-sm)/1.35 var(--font-serif); }
+.chron-id { margin-right: 6px; font: 600 var(--t-xs) var(--font-mono); color: var(--stamp); }
+.chron-row.is-retired .chron-label { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--stamp-rule); }
+.chron-track { position: relative; height: 18px; }
+.chron-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--rule); }
+.line {
+  position: absolute; top: calc(50% - 2px); height: 4px; border-radius: 2px;
+  left: calc(var(--l) * 100%); width: calc(var(--w) * 100%); transform-origin: left center;
+  background: color-mix(in oklab, var(--hot) var(--heat, 0%), var(--cold));
+}
+.chron-row.is-retired .line { top: calc(50% - 1px); height: 2px; background: var(--ink-3); }
+.chron-row.is-retired .line::after { content: ""; position: absolute; right: -1px; top: -5px; width: 2px; height: 12px; background: var(--stamp); }
+.dot { position: absolute; top: 50%; left: calc(var(--x) * 100%); width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--stamp); box-shadow: 0 0 0 2px var(--paper); }
+.dot.is-weak { background: var(--paper); border: 2px solid var(--ochre); }
+
+/* Recall */
+.recall-grid { display: grid; align-items: start; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-5); }
+.recall-grid .wide { grid-column: 1 / -1; }
+.plain { list-style: none; margin: 0; padding: 0; }
+.gap-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(9rem, 15rem); gap: var(--sp-3) var(--sp-5); align-items: center; padding: var(--sp-3) 0; border-bottom: 1px dotted var(--rule-strong); }
+.gap-q { font: 400 var(--t-md)/1.35 var(--font-serif); overflow-wrap: anywhere; }
+.gap-meta { margin-top: 4px; font: var(--t-xs)/1.4 var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.meter { position: relative; height: 10px; background: var(--paper-sunk); }
+.meter .fill { background: var(--ochre); }
+.meter .thr { position: absolute; top: -4px; bottom: -4px; left: calc(var(--x) * 100%); width: 2px; background: var(--ink); }
+.meter-cap { display: flex; justify-content: space-between; margin-top: 6px; font: var(--t-xs) var(--font-mono); color: var(--ink-3); }
+.rank-btn {
+  display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: 10px; align-items: baseline;
+  width: 100%; padding: 10px 4px; border: 0; border-bottom: 1px dotted var(--rule-strong); background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.rank-btn:hover { background: var(--paper-sunk); }
+.rank-btn .r { font: 600 var(--t-lg)/1 var(--font-serif); color: var(--ink-3); font-variant-numeric: lining-nums; }
+.rank-btn .txt { font-size: 0.98rem; line-height: 1.4; overflow-wrap: anywhere; min-width: 0; }
+.rank-btn .sub { display: block; margin-top: 3px; font: var(--t-xs)/1.4 var(--font-mono); color: var(--ink-3); }
+.rank-btn .x { font: 600 var(--t-sm) var(--font-mono); color: var(--stamp); white-space: nowrap; }
+.rank-btn.is-retired .txt { text-decoration: line-through; text-decoration-color: var(--stamp-rule); color: var(--ink-3); }
+.pair { padding: var(--sp-3) 0; border-bottom: 1px dotted var(--rule-strong); }
+.pair-head { font: var(--t-xs)/1.4 var(--font-mono); color: var(--ink-2); }
+.pair .rank-btn { grid-template-columns: 2.75rem minmax(0, 1fr); border-bottom: 0; padding: 6px 4px; }
+.pair .rank-btn .r { font: 600 var(--t-xs) var(--font-mono); color: var(--stamp); }
+
+/* Log */
+.feed { list-style: none; margin: 0; padding: 0; }
+.day-sep { margin: var(--sp-5) 0 0; padding-bottom: var(--sp-2); border-bottom: 2px solid var(--ink); font: 600 var(--t-md)/1.2 var(--font-serif); }
+.feed > li:first-child.day-sep { margin-top: var(--sp-2); }
+.ev-row {
+  display: grid; grid-template-columns: 5rem 6.5rem minmax(0, 10rem) minmax(0, 1fr) 4.5rem;
+  grid-template-areas: "time type who sum ms"; gap: 12px; align-items: baseline;
+  width: 100%; padding: 10px 4px; border: 0; border-bottom: 1px solid var(--rule); background: none;
+  color: var(--ink-2); font: var(--t-xs)/1.4 var(--font-mono); text-align: left; cursor: pointer;
+}
+.ev-row:hover { background: var(--paper-sunk); }
+.ev-row[aria-expanded="true"] { background: var(--card); }
+.ev-time { grid-area: time; font-variant-numeric: tabular-nums; }
+.ev-row .stamp { grid-area: type; }
+.ev-who { grid-area: who; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-sum { grid-area: sum; font: 1rem/1.4 var(--font-serif); color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
+.ev-ms { grid-area: ms; text-align: right; font-variant-numeric: tabular-nums; }
+.ev-detail { padding: var(--sp-3) var(--sp-4) var(--sp-4); background: var(--card); border-bottom: 1px solid var(--rule); }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; font: var(--t-xs)/1.5 var(--font-mono); }
+.kv dt { color: var(--ink-3); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.ids { display: flex; flex-wrap: wrap; gap: 6px; }
+pre.json { margin: var(--sp-3) 0 0; padding: var(--sp-3); max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--paper-sunk); font: var(--t-xs)/1.5 var(--font-mono); color: var(--ink-2); }
+
+/* Overlays */
+.overlay { position: fixed; inset: 0; z-index: 50; }
+.scrim { position: absolute; inset: 0; background: var(--scrim); animation: fade var(--dur-2) var(--ease-out); }
+.drawer-panel {
+  position: absolute; top: 0; right: 0; bottom: 0; width: min(34rem, 100%); overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--sp-5) var(--sp-6) var(--sp-8); background: var(--card); border-left: 1px solid var(--rule-strong); box-shadow: var(--shadow-lg);
+  animation: slide var(--dur-3) var(--ease-out);
+}
+.d-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.d-head h2 { margin: 0; font: 600 var(--t-xl)/1.1 var(--font-serif); }
+.d-head h2:focus { outline: none; }
+.d-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: var(--sp-4); font: var(--t-xs) var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.d-text { margin: var(--sp-5) 0; padding-left: var(--sp-4); border-left: 3px solid var(--stamp); font: 400 1.25rem/1.5 var(--font-serif); white-space: pre-wrap; overflow-wrap: anywhere; }
+.d-text.is-retired { border-left-color: var(--rule-strong); color: var(--ink-2); }
+.life { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: var(--sp-6) 0 var(--sp-5); padding: 0; border-top: 2px solid var(--ink); }
+.life li { position: relative; padding: var(--sp-4) var(--sp-3) 0 0; min-width: 0; }
+.life li::before { content: ""; position: absolute; top: -7px; left: 0; width: 12px; height: 12px; border-radius: 50%; background: var(--card); border: 2px solid var(--ink); }
+.life li.done::before { background: var(--ink); }
+.life li.end::before { background: var(--stamp); border-color: var(--stamp); }
+.life b { display: block; font: 600 var(--t-xs)/1.2 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.life span { display: block; margin-top: 4px; font: var(--t-sm)/1.4 var(--font-serif); overflow-wrap: anywhere; }
+.drawer-panel h3 { margin: var(--sp-6) 0 var(--sp-2); font: 600 var(--t-md)/1.2 var(--font-serif); }
+.hist li { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 4px 10px; padding: 8px 0; border-bottom: 1px dotted var(--rule-strong); font-size: 0.97rem; }
+.hist time, .hist .who { font: var(--t-xs)/1.5 var(--font-mono); color: var(--ink-3); }
+.hist .q { overflow-wrap: anywhere; }
+.hist .weak { color: var(--ochre); font: var(--t-xs) var(--font-mono); }
+
+.pal {
+  position: absolute; left: 50%; top: 12vh; width: min(38rem, calc(100% - 32px)); transform: translateX(-50%);
+  background: var(--card); border: 1px solid var(--rule-strong); box-shadow: var(--shadow-lg); animation: drop var(--dur-2) var(--ease-out);
+}
+.pal input { width: 100%; min-height: 56px; padding: 0 18px; border: 0; border-bottom: 1px solid var(--rule-strong); background: transparent; color: var(--ink); font: 400 var(--t-md) var(--font-serif); }
+.pal input:focus-visible { outline: none; }
+.pal ul { list-style: none; margin: 0; padding: 6px; max-height: min(52vh, 24rem); overflow-y: auto; }
+.pal li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 12px; cursor: pointer; font: var(--t-sm)/1.35 var(--font-serif); }
+.pal li span { min-width: 0; overflow-wrap: anywhere; }
+.pal li small { flex: none; font: var(--t-xs) var(--font-mono); color: var(--ink-3); }
+.pal li[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+.pal li[aria-selected="true"] small { color: var(--paper); opacity: 0.75; }
+.pal-hint { padding: 8px 18px 12px; font: var(--t-xs) var(--font-mono); color: var(--ink-3); border-top: 1px solid var(--rule); }
+
+/* Gate */
+.gate { min-height: 100dvh; display: grid; place-items: center; padding: var(--sp-6) var(--sp-4); }
+.gate-card {
+  position: relative; width: min(30rem, 100%); padding: var(--sp-6) var(--sp-6) var(--sp-7);
+  background-color: var(--card); box-shadow: var(--shadow-lg); border: 1px solid var(--rule-strong);
+  background-image:
+    linear-gradient(to bottom, transparent 5.25rem, var(--stamp-rule) 5.25rem, var(--stamp-rule) calc(5.25rem + 1px), transparent calc(5.25rem + 1px)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(1.75rem - 1px), var(--rule) calc(1.75rem - 1px), var(--rule) 1.75rem);
+  background-position: 0 0, 0 5.25rem;
+  background-size: 100% 100%, 100% calc(100% - 5.25rem);
+  background-repeat: no-repeat;
+}
+.gate-card::after { content: ""; position: absolute; bottom: 16px; left: 50%; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: var(--paper); box-shadow: inset 0 1px 3px var(--scrim); }
+.gate-card .wm { font-size: 2.25rem; }
+.gate-card h2 { margin: var(--sp-6) 0 0; font: 600 var(--t-lg)/1.75rem var(--font-serif); }
+.gate-card p { line-height: 1.75rem; color: var(--ink-2); }
+.gate-form { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-4); }
+.gate-form input { flex: 1 1 14rem; min-width: 0; }
+.gate-err { min-height: 1.75rem; margin-top: var(--sp-2); font: var(--t-sm)/1.75rem var(--font-mono); color: var(--stamp); }
+
+/* Motion */
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } }
+@keyframes grow { from { transform: scaleX(0); } }
+@keyframes wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes slide { from { opacity: 0; transform: translateX(28px); } }
+@keyframes rise { from { opacity: 0; transform: translateY(40px); } }
+@keyframes drop { from { opacity: 0; transform: translate(-50%, -10px); } }
+@keyframes pulse { to { opacity: 0.3; } }
+@keyframes blink { from { opacity: 0.2; } }
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .figures { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .figures > div:nth-child(4) { border-left: 0; padding-left: 0; }
+  .figures > div:nth-child(n + 4) { border-top: 1px solid var(--rule); }
+}
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-areas: "mast" "spine" "main"; grid-template-rows: auto auto 1fr; }
+  .mast { padding: var(--sp-3) var(--sp-4); gap: var(--sp-2) var(--sp-4); }
+  .tools { margin-left: 0; width: 100%; }
+  .spine { z-index: 5; flex-direction: row; gap: 0; padding: 0 var(--sp-4); background: var(--paper); border-bottom: 1px solid var(--rule-strong); }
+  .tab { flex: 1 1 0; min-width: 0; justify-content: center; padding: 12px 2px; border-left: 0; border-bottom: 2px solid transparent; font-size: 0.95rem; }
+  .tab[aria-selected="true"] { border-bottom-color: var(--stamp); background: none; box-shadow: none; }
+  .tab kbd, .colophon { display: none; }
+  main { padding: var(--sp-5) var(--sp-4) var(--sp-8); }
+  .ledger-grid, .recall-grid { grid-template-columns: minmax(0, 1fr); }
+  .sheet { padding: var(--sp-4) var(--sp-4) var(--sp-5); }
+  .sheet > h3 { margin: 0 calc(-1 * var(--sp-4)) var(--sp-4); padding: 0 var(--sp-4) var(--sp-2); }
+  .chron { --label: minmax(0, 1fr); }
+  .axis { position: static; grid-template-columns: minmax(0, 1fr); }
+  .tools .btn { padding: 0 10px; }
+  .tools .btn kbd { display: none; }
+  .axis-label { display: none; }
+  .chron-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .gap-list li { grid-template-columns: minmax(0, 1fr); }
+  .ev-row { grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "time type who ms" "sum sum sum sum"; gap: 6px 10px; }
+  .drawer-panel { top: auto; left: 0; width: 100%; max-height: 88dvh; padding: var(--sp-4) var(--sp-4) var(--sp-7); border-left: 0; border-top: 2px solid var(--ink); animation-name: rise; }
+  .life { grid-template-columns: minmax(0, 1fr); border-top: 0; border-left: 2px solid var(--ink); margin-left: 6px; }
+  .life li { padding: 0 0 var(--sp-4) var(--sp-4); }
+  .life li::before { top: 2px; left: -7px; }
+}
+@media (max-width: 520px) {
+  .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .figures > div:nth-child(n) { border-left: 0; padding-left: 0; border-top: 1px solid var(--rule); }
+  .figures > div:nth-child(-n + 2) { border-top: 0; }
+  .figures > div:nth-child(even) { border-left: 1px solid var(--rule); padding-left: var(--sp-3); }
+  .scale-row { grid-template-columns: 6.25rem minmax(0, 1fr) 3.75rem; }
+  .bars li { grid-template-columns: minmax(0, 6.5rem) minmax(0, 1fr) auto; }
+  .latest li { grid-template-columns: auto minmax(0, 1fr); }
+  .latest li time { grid-column: 1 / -1; }
+  .controls .seg { width: 100%; }
+  .controls .seg button { flex: 1 1 auto; }
+  .tick.mid { display: none; }
+}
+@media (max-width: 360px) {
+  .spine { padding: 0 var(--sp-2); }
+  .tab { flex: 1 1 auto; padding: 12px 4px; font-size: 0.84rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 120ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 0ms !important; scroll-behavior: auto !important; }
+  .view, .drawer-panel, .pal, .reveal .fill, .reveal .line, .reveal .wipe { animation-name: fade !important; }
+  .card:hover { transform: none; }
+}
+</style>
+</head>
+<body>
+
+<main class="gate" id="gate" hidden>
+  <div class="gate-card">
+    <h1 class="wm">memory<b>·</b>core</h1>
+    <h2>Reading room</h2>
+    <p>Present an API token to open the stacks. It stays in this browser and nowhere else.</p>
+    <form class="gate-form" id="gateForm" novalidate>
+      <label class="sr" for="tok">API token</label>
+      <input id="tok" type="password" placeholder="Bearer token" autocomplete="off" spellcheck="false">
+      <button class="btn" type="submit">Open the stacks</button>
+    </form>
+    <p class="gate-err" id="gateErr" role="alert"></p>
+  </div>
+</main>
+
+<div class="app" id="app" hidden>
+  <header class="mast">
+    <p class="wm" aria-label="memory-core">memory<b>·</b>core</p>
+    <span class="sync" id="sync" data-state="idle"><i aria-hidden="true"></i><span id="syncText">not synced</span></span>
+    <div class="tools">
+      <label id="rangeWrap">Range
+        <select id="days">
+          <option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option>
+        </select>
+      </label>
+      <button class="btn" type="button" id="autoBtn" aria-pressed="false" title="Refresh every 15 seconds (a)">Auto 15s</button>
+      <button class="btn" type="button" id="refreshBtn" title="Refresh now (r)">Refresh</button>
+      <button class="btn" type="button" id="palBtn" title="Command palette (⌘K or /)">Find <kbd>⌘K</kbd></button>
+      <button class="btn" type="button" id="lockBtn">Forget token</button>
+    </div>
+  </header>
+
+  <nav class="spine" aria-label="Views">
+    <div role="tablist" aria-orientation="vertical" id="tabs" style="display:contents">
+      <button class="tab" role="tab" id="t-ledger" data-view="ledger" aria-controls="v-ledger" aria-selected="true">Ledger <kbd>1</kbd></button>
+      <button class="tab" role="tab" id="t-stacks" data-view="stacks" aria-controls="v-stacks" aria-selected="false" tabindex="-1">Stacks <kbd>2</kbd></button>
+      <button class="tab" role="tab" id="t-chronicle" data-view="chronicle" aria-controls="v-chronicle" aria-selected="false" tabindex="-1">Chronicle <kbd>3</kbd></button>
+      <button class="tab" role="tab" id="t-recall" data-view="recall" aria-controls="v-recall" aria-selected="false" tabindex="-1">Recall <kbd>4</kbd></button>
+      <button class="tab" role="tab" id="t-log" data-view="log" aria-controls="v-log" aria-selected="false" tabindex="-1">Log <kbd>5</kbd></button>
+      <button class="tab" role="tab" id="t-skills" data-view="skills" aria-controls="v-skills" aria-selected="false" tabindex="-1">Skills <kbd>6</kbd></button>
+    </div>
+    <p class="colophon">Read-only.<br><kbd>1–6</kbd> views · <kbd>/</kbd> find<br><kbd>r</kbd> refresh · <kbd>a</kbd> auto<br><span id="hostName"></span></p>
+  </nav>
+
+  <main>
+    <section class="view" id="v-ledger" role="tabpanel" aria-labelledby="t-ledger" tabindex="-1">
+      <div class="notice" hidden></div>
+      <h2 class="sr">Ledger</h2>
+      <p class="abstract slot" id="abstract"></p>
+      <dl class="figures slot" id="figures"></dl>
+      <div class="ledger-grid">
+        <article class="sheet traffic">
+          <h3>Traffic <small id="trafficRange"></small></h3>
+          <div class="slot" id="traffic"></div>
+        </article>
+        <article class="sheet">
+          <h3>Balance <small>tokens, estimated</small></h3>
+          <div class="slot" id="balance"></div>
+        </article>
+        <article class="sheet">
+          <h3>Who asks <small>events per agent</small></h3>
+          <div class="slot" id="agents"></div>
+          <p class="sub-h">Where recalls land</p>
+          <div class="slot" id="scopes"></div>
+        </article>
+        <article class="sheet">
+          <h3>Last heard</h3>
+          <div class="slot" id="latest"></div>
+          <button class="btn more" type="button" id="toLog">Open the full log</button>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="v-stacks" role="tabpanel" aria-labelledby="t-stacks" tabindex="-1" hidden>
+      <div class="notice" hidden></div>
+      <header class="view-head">
+        <h2>Stacks</h2>
+        <p class="lede">Every card on file. The left edge runs warm the more often recall returns a memory; a dashed edge means it was never returned.</p>
+      </header>
+      <div class="controls">
+        <label class="search"><span class="sr">Search memory text</span><input id="q" type="search" placeholder="Search the stacks…" autocomplete="off"></label>
+        <label class="sr" for="fScope">Scope</label>
+        <select id="fScope"><option value="">Every scope</option></select>
+        <label class="sr" for="fKind">Kind</label>
+        <select id="fKind"><option value="">Every kind</option></select>
+        <div class="seg" role="group" aria-label="State" id="stateSeg">
+          <button type="button" data-st="active" aria-pressed="true">Held</button>
+          <button type="button" data-st="retired" aria-pressed="false">Retired</button>
+          <button type="button" data-st="all" aria-pressed="false">All</button>
+        </div>
+      </div>
+      <p class="count" id="stacksCount" aria-live="polite"></p>
+      <div class="slot" id="cards"></div>
+      <div class="pager"><button class="btn" type="button" id="memPrev">← Newer</button><span id="memPage"></span><button class="btn" type="button" id="memNext">Older →</button></div>
+    </section>
+
+    <section class="view" id="v-chronicle" role="tabpanel" aria-labelledby="t-chronicle" tabindex="-1" hidden>
+      <div class="notice" hidden></div>
+      <header class="view-head">
+        <h2>Chronicle</h2>
+        <p class="lede">Each memory is a line from the moment it was written to the moment it was retired, or on to now. Nothing is deleted, so retired lines stay on the record.</p>
+        <p class="fine">Spacing follows the order of events, not clock time, so a busy minute and a quiet month get equal room.</p>
+      </header>
+      <div class="legend" aria-hidden="true">
+        <span><i class="lg-line"></i>held (warmer = returned more)</span>
+        <span><i class="lg-ret"></i>retired</span>
+        <span><i class="lg-dot"></i>confident recall</span>
+        <span><i class="lg-weak"></i>weak recall</span>
+      </div>
+      <div class="chron slot" id="chron"></div>
+      <p class="fine" id="chronNote"></p>
+    </section>
+
+    <section class="view" id="v-recall" role="tabpanel" aria-labelledby="t-recall" tabindex="-1" hidden>
+      <div class="notice" hidden></div>
+      <header class="view-head">
+        <h2>Recall</h2>
+        <p class="lede">How well the core answers. Gaps are questions it couldn't match; dormant cards are answers nobody has asked for yet.</p>
+      </header>
+      <div class="recall-grid">
+        <article class="sheet wide">
+          <h3>Gaps <small id="gapRange"></small></h3>
+          <div class="slot" id="gaps"></div>
+        </article>
+        <article class="sheet">
+          <h3>Most returned <small>all time</small></h3>
+          <div class="slot" id="top"></div>
+        </article>
+        <article class="sheet">
+          <h3>Dormant <small>held, never returned</small></h3>
+          <div class="slot" id="dormant"></div>
+        </article>
+        <article class="sheet wide">
+          <h3>Look-alikes <small>word overlap, computed in this browser</small></h3>
+          <div class="slot" id="alike"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="v-log" role="tabpanel" aria-labelledby="t-log" tabindex="-1" hidden>
+      <div class="notice" hidden></div>
+      <header class="view-head">
+        <h2>Log</h2>
+        <p class="lede">Every recall, document search, remember and forget, newest first. Select an entry to see its numbers and the cards it touched.</p>
+      </header>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Event type" id="typeSeg">
+          <button type="button" data-type="" aria-pressed="true">All</button>
+          <button type="button" data-type="recall" aria-pressed="false">Recall</button>
+          <button type="button" data-type="search_docs" aria-pressed="false">Docs</button>
+          <button type="button" data-type="remember" aria-pressed="false">Remember</button>
+          <button type="button" data-type="forget" aria-pressed="false">Forget</button>
+        </div>
+        <label class="sr" for="fAgent">Agent</label>
+        <select id="fAgent"><option value="">Every agent</option></select>
+      </div>
+      <ol class="feed slot" id="feed"></ol>
+      <div class="pager"><button class="btn" type="button" id="evPrev">← Newer</button><span id="evPage"></span><button class="btn" type="button" id="evNext">Older →</button></div>
+    </section>
+    <section class="view" id="v-skills" role="tabpanel" aria-labelledby="t-skills" tabindex="-1" hidden>
+      <div class="notice" hidden></div>
+      <header class="view-head">
+        <h2>Skills</h2>
+        <p class="lede">The archived skill catalogue. Each card is a skill kept out of the session start and recalled on demand. The left edge runs warm the more often a skill is recalled.</p>
+      </header>
+      <div class="controls">
+        <label class="search"><span class="sr">Search skills</span><input id="sq" type="search" placeholder="Search skills by name or description…" autocomplete="off"></label>
+        <div class="seg" role="group" aria-label="Usage" id="skillSeg">
+          <button type="button" data-use="all" aria-pressed="true">All</button>
+          <button type="button" data-use="used" aria-pressed="false">Recalled</button>
+          <button type="button" data-use="never" aria-pressed="false">Never</button>
+        </div>
+      </div>
+      <p class="count" id="skillsCount" aria-live="polite"></p>
+      <div class="slot" id="skillCards"></div>
+    </section>
+  </main>
+</div>
+
+<div class="overlay" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dTitle" hidden>
+  <div class="scrim" data-close></div>
+  <div class="drawer-panel">
+    <div class="d-head">
+      <h2 id="dTitle" tabindex="-1">Memory</h2>
+      <button class="btn" type="button" data-close>Close <kbd>esc</kbd></button>
+    </div>
+    <div id="dBody"></div>
+  </div>
+</div>
+
+<div class="overlay" id="palette" role="dialog" aria-modal="true" aria-label="Command palette" hidden>
+  <div class="scrim" data-close></div>
+  <div class="pal">
+    <input id="palIn" type="text" role="combobox" aria-expanded="true" aria-controls="palList" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="Jump to a view, type #id, or search memories…" aria-label="Command">
+    <ul id="palList" role="listbox" aria-label="Results"></ul>
+    <p class="pal-hint">↑ ↓ move · enter run · esc close</p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const SVGNS = "http://www.w3.org/2000/svg";
+const VIEWS = ["ledger", "stacks", "chronicle", "recall", "log", "skills"];
+const TITLES = { ledger: "Ledger", stacks: "Stacks", chronicle: "Chronicle", recall: "Recall", log: "Log", skills: "Skills" };
+const TYPES = { recall: "recall", search_docs: "docs", remember: "remember", forget: "forget" };
+const PAGE = 30, EV_PAGE = 40, AUTO_MS = 15000, CORPUS_CAP = 2000, ALIKE_MIN = 0.6, ALIKE_MAX_ITEMS = 600;
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } },
+  del(k) { try { localStorage.removeItem(k); } catch { /* storage unavailable */ } },
+};
+
+const S = {
+  token: store.get("mc_token") || "",
+  view: "ledger",
+  days: ["7", "30", "90"].includes(store.get("mc_days")) ? store.get("mc_days") : "30",
+  auto: store.get("mc_auto") === "1",
+  seq: 0, timer: null, opener: null, typing: null,
+  mem: { offset: 0, total: 0, st: "active" },
+  ev: { offset: 0, total: 0, type: "" },
+  expanded: new Set(),
+  painted: new Set(),
+  corpus: null,
+  scores: new Map(),
+  confSim: 0.4,
+  pal: { items: [], active: 0 },
+};
+
+/* ---------- helpers ---------- */
+
+function h(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) n.append(kid instanceof Node ? kid : String(kid));
+  return n;
+}
+function sv(tag, attrs) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, String(v));
+  return n;
+}
+const plural = (n, one, many) => (Number(n) === 1 ? one : many);
+const fmtN = (n) => (n == null || Number.isNaN(Number(n)) ? "—" : Number(n).toLocaleString());
+const fmtMs = (n) => (n == null ? "—" : `${Number(n).toFixed(1)} ms`);
+const fmtScore = (n) => (n == null ? "—" : Number(n).toFixed(2));
+const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : null);
+const clip = (s, n) => { s = String(s ?? ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
+const typeKey = (t) => (t in TYPES ? t : "other");
+
+// Server timestamps carry microseconds; Safari rejects more than 3 fractional digits.
+const toDate = (s) => (s ? new Date(String(s).replace(/(\.\d{3})\d+/, "$1")) : null);
+const toMs = (s) => { const d = toDate(s); return d ? d.getTime() : NaN; };
+function fmtAbs(s) {
+  const d = toDate(s);
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+}
+const fmtDay = (s) => { const d = toDate(s); return d ? d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "—"; };
+const fmtClock = (s) => { const d = toDate(s); return d ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"; };
+function fmtRel(s) {
+  const t = toMs(s);
+  if (Number.isNaN(t)) return "never";
+  const sec = Math.round((Date.now() - t) / 1000);
+  if (sec < 45) return "just now";
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
+  if (sec < 86400 * 30) return `${Math.round(sec / 86400)}d ago`;
+  return fmtDay(s);
+}
+const timeEl = (s) => (s ? h("time", { datetime: s, title: fmtAbs(s) }, fmtRel(s)) : h("span", null, "never"));
+
+class AuthError extends Error {}
+async function api(path) {
+  let r;
+  try { r = await fetch(path, { headers: { Authorization: "Bearer " + S.token }, cache: "no-store" }); }
+  catch { throw new Error("the server is unreachable"); }
+  if (r.status === 401 || r.status === 403) throw new AuthError("auth");
+  if (!r.ok) { const e = new Error(`HTTP ${r.status}`); e.status = r.status; throw e; }
+  return r.json();
+}
+
+async function fetchCorpus() {
+  const items = [];
+  let total = Infinity;
+  while (items.length < total && items.length < CORPUS_CAP) {
+    const page = await api(`/api/v1/browse?state=all&limit=200&offset=${items.length}`);
+    total = page.total;
+    items.push(...page.items);
+    if (!page.items.length) break;
+  }
+  return { items, total, truncated: items.length < total };
+}
+function rememberScores(events) {
+  for (const e of events || []) if (e.top_score != null) S.scores.set(e.id, e.top_score);
+}
+
+function setSync(state, text) { $("sync").dataset.state = state; $("syncText").textContent = text; }
+function notice(view, msg) {
+  const n = $("v-" + view).querySelector(".notice");
+  n.hidden = !msg;
+  n.replaceChildren();
+  if (msg) n.append(h("span", null, `Couldn't load this view: ${msg}.`), h("button", { class: "btn small", type: "button", onclick: () => load() }, "Retry"));
+}
+// replaceChildren stringifies null, so drop empty slots first.
+function put(box, ...kids) { box.replaceChildren(...kids.flat(Infinity).filter((k) => k != null && k !== false)); }
+function stamp(type, label) { return h("span", { class: "stamp t-" + type }, label); }
+function emptyP(text) { return h("p", { class: "empty" }, text); }
+
+/* ---------- loading ---------- */
+
+const LOADERS = {
+  async ledger() {
+    const [u, st, ev] = await Promise.all([api(`/api/v1/usage?days=${S.days}`), api("/api/v1/stats"), api("/api/v1/events?limit=6")]);
+    return (first) => renderLedger(u, st, ev, first);
+  },
+  async stacks() {
+    const p = new URLSearchParams({ state: S.mem.st, limit: PAGE, offset: S.mem.offset });
+    for (const [key, id] of [["q", "q"], ["scope", "fScope"], ["kind", "fKind"]]) { const v = $(id).value.trim(); if (v) p.set(key, v); }
+    const [page, corpus] = await Promise.all([api("/api/v1/browse?" + p), S.corpus ? S.corpus : fetchCorpus()]);
+    S.corpus = corpus;
+    return () => renderStacks(page, corpus);
+  },
+  async chronicle() {
+    const [corpus, ev] = await Promise.all([fetchCorpus(), api("/api/v1/events?type=recall&limit=200")]);
+    S.corpus = corpus;
+    return (first) => renderChronicle(corpus, ev.items || [], first);
+  },
+  async recall() {
+    const [u, corpus] = await Promise.all([api(`/api/v1/usage?days=${S.days}`), fetchCorpus()]);
+    S.corpus = corpus;
+    return (first) => renderRecall(u, corpus, first);
+  },
+  async skills() {
+    const corpus = await fetchCorpus();
+    S.corpus = corpus;
+    return () => renderSkills(corpus);
+  },
+  async log() {
+    const p = new URLSearchParams({ limit: EV_PAGE, offset: S.ev.offset });
+    if (S.ev.type) p.set("type", S.ev.type);
+    if ($("fAgent").value) p.set("agent_name", $("fAgent").value);
+    const data = await api("/api/v1/events?" + p);
+    return () => renderLog(data);
+  },
+};
+
+async function load() {
+  if (!S.token) return;
+  const my = ++S.seq, view = S.view, panel = $("v-" + view), first = !S.painted.has(view);
+  if (first) panel.setAttribute("aria-busy", "true");
+  setSync("busy", "syncing…");
+  try {
+    const paint = await LOADERS[view]();
+    if (my !== S.seq) return;
+    panel.classList.toggle("reveal", first);
+    // Re-renders detach the focused node; restore focus by its stable key.
+    const k = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.k : null;
+    paint(first);
+    if (k) { const t = panel.querySelector(`[data-k="${CSS.escape(k)}"]`); if (t) t.focus({ preventScroll: true }); }
+    S.painted.add(view);
+    notice(view, null);
+    setSync("ok", "synced " + new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+  } catch (e) {
+    if (my !== S.seq) return;
+    if (e instanceof AuthError) { lock("Token rejected."); return; }
+    notice(view, e.message);
+    setSync("err", "sync failed");
+  } finally {
+    if (my === S.seq) panel.removeAttribute("aria-busy");
+  }
+}
+
+/* ---------- ledger ---------- */
+
+function renderLedger(u, st, ev, first) {
+  S.confSim = u.confident_sim ?? S.confSim;
+  rememberScores(ev.items);
+  const N = (v) => h("strong", { class: "num" }, fmtN(v));
+  const scopes = Object.keys(st.by_scope || {}).length;
+  const recalls = u.recalls || 0, confident = u.confident || 0, weak = Math.max(0, recalls - confident);
+  const parts = [];
+  if (!st.active && !st.retired) parts.push("The core is empty. Cards appear here once an agent calls remember.");
+  else parts.push("The core holds ", N(st.active), plural(st.active, " memory", " memories"), " across ", N(scopes), plural(scopes, " scope", " scopes"),
+    ", with ", N(st.retired), " retired and kept on file. ");
+  if (recalls) parts.push(`In the last ${u.days} days agents asked `, N(recalls), plural(recalls, " time", " times"), "; ", N(confident), " came back confident",
+    weak ? [" and ", N(weak), " found nothing solid."] : ".");
+  else if (st.active || st.retired) parts.push(`No agent has recalled anything in the last ${u.days} days.`);
+  $("abstract").replaceChildren(...parts.flat());
+
+  const added = (st.per_day || []).reduce((a, d) => a + (d.n || 0), 0);
+  const conf = pctOf(confident, recalls);
+  const fig = (label, value, sub) => h("div", null, h("dt", null, label), h("dd", null, value, h("small", null, sub)));
+  $("figures").replaceChildren(
+    fig("Held", fmtN(st.active), `${fmtN(added)} written in 30 days`),
+    fig("Retired", fmtN(st.retired), "kept as history"),
+    fig("Recalls", fmtN(recalls), `last ${u.days} days`),
+    fig("Confident", conf == null ? "—" : conf + "%", `best match ≥ ${u.confident_sim}`),
+    fig("Gaps", fmtN(weak), "weak recalls"),
+    fig("Search", recalls ? fmtMs(u.avg_ms) : "—", recalls ? `p95 ${fmtMs(u.p95_ms)}` : "no recalls yet"),
+  );
+  renderTraffic(u.per_day || [], u.days);
+  renderBalance(u);
+  barList($("agents"), u.by_agent, "No agent activity in this range.");
+  barList($("scopes"), u.by_scope, "No recalls in this range.");
+  renderLatest(ev.items || []);
+}
+
+function renderTraffic(days, span) {
+  const box = $("traffic"), W = 12, H = 150, MID = 92;
+  $("trafficRange").textContent = `last ${span} days`;
+  const tot = days.reduce((a, d) => [a[0] + (d.recall || 0), a[1] + (d.remember || 0), a[2] + (d.forget || 0)], [0, 0, 0]);
+  const max = Math.max(1, ...days.map((d) => Math.max(d.recall || 0, (d.remember || 0) + (d.forget || 0))));
+  const up = (MID - 4) / max, down = (H - MID - 4) / max;
+  const svg = sv("svg", { viewBox: `0 0 ${Math.max(1, days.length) * W} ${H}`, preserveAspectRatio: "none", role: "img", class: "wipe",
+    "aria-label": `Daily traffic: ${tot[0]} recalls, ${tot[1]} remembered, ${tot[2]} forgotten` });
+  svg.append(sv("rect", { class: "b-base", x: 0, y: MID, width: days.length * W, height: 1 }));
+  days.forEach((d, i) => {
+    const x = i * W + 2, w = W - 4, g = sv("g");
+    const t = sv("title");
+    t.textContent = `${d.day}: ${d.recall || 0} recalls, ${d.remember || 0} remembered, ${d.forget || 0} forgotten`;
+    g.append(t, sv("rect", { x: i * W, y: 0, width: W, height: H, fill: "transparent" }));
+    if (d.recall) g.append(sv("rect", { class: "b-recall", x, width: w, y: MID - d.recall * up, height: d.recall * up }));
+    if (d.remember) g.append(sv("rect", { class: "b-remember", x, width: w, y: MID + 2, height: d.remember * down }));
+    if (d.forget) g.append(sv("rect", { class: "b-forget", x, width: w, y: MID + 2 + (d.remember || 0) * down, height: d.forget * down }));
+    if (!d.recall && !d.remember && !d.forget) g.append(sv("rect", { class: "b-zero", x, width: w, y: MID - 2, height: 2 }));
+    svg.append(g);
+  });
+  const key = h("div", { class: "key" },
+    keyItem("var(--stamp)", `recalls above the line · ${fmtN(tot[0])}`),
+    keyItem("var(--ochre)", `remembered below · ${fmtN(tot[1])}`),
+    keyItem("var(--ink-3)", `forgotten · ${fmtN(tot[2])}`));
+  const axis = days.length ? h("div", { class: "axis-days" }, h("span", null, fmtDay(days[0].day + "T12:00:00")), h("span", null, "today")) : null;
+  put(box, svg, axis, key, tot[0] + tot[1] + tot[2] ? null : emptyP("No traffic in this range yet."));
+}
+function keyItem(color, text) { const s = h("span", null, text); s.style.setProperty("--sw", color); return s; }
+
+function renderBalance(u) {
+  const box = $("balance");
+  if (!u.baseline_tokens) { box.replaceChildren(emptyP("Nothing to weigh yet. The balance fills in once agents recall.")); return; }
+  const ratio = Math.min(1, (u.served_tokens || 0) / u.baseline_tokens);
+  const row = (cls, label, w, v) => { const f = h("span", { class: "fill" }); f.style.setProperty("--w", w); return h("div", { class: "scale-row " + cls }, h("span", null, label), h("span", { class: "track" }, f), h("span", { class: "v" }, fmtN(v))); };
+  box.replaceChildren(
+    h("p", { class: "big" }, h("span", { class: "num" }, "≈ " + fmtN(u.saved_tokens)), " tokens kept out of context"),
+    row("base", "paste everything", 1, u.baseline_tokens),
+    row("served", "recall served", ratio, u.served_tokens),
+    h("p", { class: "fine" }, `An estimate. The baseline pastes every active memory in scope into each recall; tokens ≈ characters ÷ ${u.chars_per_token}. Recall served ${Math.round(ratio * 100)}% of that. A small core saves little; the gap widens as it grows.`),
+  );
+}
+
+function barList(box, counts, emptyText) {
+  const rows = Object.entries(counts || {}).sort((a, b) => b[1] - a[1]);
+  if (!rows.length) { box.replaceChildren(emptyP(emptyText)); return; }
+  const max = Math.max(1, ...rows.map((r) => r[1]));
+  box.replaceChildren(h("ul", { class: "bars" }, rows.map(([k, n]) => {
+    const f = h("span", { class: "fill" });
+    f.style.setProperty("--w", n / max);
+    return h("li", null, h("span", { class: "k", title: k }, k), h("span", { class: "track" }, f), h("span", { class: "n" }, fmtN(n)));
+  })));
+}
+
+function summary(e) {
+  const q = e.query ? `“${clip(e.query, 140)}”` : "(empty query)";
+  const d = e.detail || {};
+  if (e.type === "forget") return `Retired #${(e.result_ids || [])[0] ?? "?"}${d.reason ? ": " + d.reason : ""}`;
+  if (e.type === "remember") {
+    const f = Array.isArray(d.facts) ? d.facts.length : d.facts ?? (e.result_ids || []).length;
+    return `Saved ${fmtN(f)} ${plural(f, "fact", "facts")}: ${q}`;
+  }
+  return `${q} → ${fmtN(e.n_results ?? 0)} ${plural(e.n_results, "result", "results")}${e.top_score == null ? "" : `, best ${fmtScore(e.top_score)}`}`;
+}
+
+function renderLatest(items) {
+  const box = $("latest");
+  if (!items.length) { box.replaceChildren(emptyP("Nothing logged yet. Entries appear when an agent recalls, remembers or forgets.")); return; }
+  box.replaceChildren(h("ol", { class: "latest" }, items.map((e) =>
+    h("li", null, stamp(typeKey(e.type), TYPES[e.type] || e.type), h("span", { class: "sum" }, summary(e)), timeEl(e.ts)))));
+}
+
+/* ---------- stacks ---------- */
+
+function fillSelect(sel, values, allLabel) {
+  const keep = sel.value;
+  sel.replaceChildren(h("option", { value: "" }, allLabel), values.map(([v, label]) => h("option", { value: v }, label)));
+  sel.value = values.some(([v]) => v === keep) ? keep : "";
+}
+function tally(items, key) {
+  const m = new Map();
+  for (const it of items) { const c = m.get(it[key]) || { held: 0, all: 0 }; c.all++; if (!it.valid_to) c.held++; m.set(it[key], c); }
+  return [...m.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+}
+
+function renderStacks(page, corpus) {
+  fillSelect($("fScope"), tally(corpus.items, "scope").map(([k, c]) => [k, `${k} (${c.held}/${c.all})`]), "Every scope");
+  fillSelect($("fKind"), tally(corpus.items, "kind").map(([k, c]) => [k, `${k} (${c.held}/${c.all})`]), "Every kind");
+  const m = S.mem, items = page.items || [];
+  m.total = page.total || 0;
+  const maxHits = Math.max(1, ...corpus.items.map((x) => x.hits || 0));
+  const filtered = $("q").value.trim() || $("fScope").value || $("fKind").value || m.st !== "active";
+  $("stacksCount").textContent = m.total ? `Showing ${fmtN(m.offset + 1)}–${fmtN(m.offset + items.length)} of ${fmtN(m.total)}` : "";
+  const box = $("cards");
+  if (!items.length) {
+    box.replaceChildren(emptyP(filtered ? "No cards match these filters." : "The stacks are empty. Cards appear once an agent calls remember."));
+  } else {
+    const groups = new Map();
+    for (const it of items) { if (!groups.has(it.scope)) groups.set(it.scope, []); groups.get(it.scope).push(it); }
+    box.replaceChildren(...[...groups.entries()].flatMap(([scope, list]) => [
+      h("div", { class: "lane-head" }, h("h3", null, scope), h("small", null, `${list.length} on this page`)),
+      h("div", { class: "cards" }, list.map((it) => card(it, maxHits))),
+    ]));
+  }
+  $("memPage").textContent = m.total ? `page ${Math.floor(m.offset / PAGE) + 1} of ${Math.ceil(m.total / PAGE)}` : "";
+  $("memPrev").disabled = m.offset === 0;
+  $("memNext").disabled = m.offset + PAGE >= m.total;
+}
+
+function heatPct(hits, maxHits) { return hits ? Math.round(30 + (70 * hits) / maxHits) + "%" : "0%"; }
+
+function card(m, maxHits) {
+  const retired = !!m.valid_to, hits = m.hits || 0;
+  const art = h("article", { class: "card" + (retired ? " is-retired" : "") + (!retired && !hits ? " is-dormant" : "") },
+    retired ? h("span", { class: "retired-stamp" }, "Retired " + fmtDay(m.valid_to)) : null,
+    h("p", { class: "card-text" }, m.content),
+    h("div", { class: "card-meta" },
+      h("button", { class: "card-open", type: "button", "data-k": "m-" + m.id, "aria-label": `Open memory #${m.id}`, onclick: (e) => openMemory(m.id, e.currentTarget) }, "#" + m.id),
+      h("span", null, m.kind),
+      h("span", null, "by " + m.created_by),
+      h("span", null, "written ", timeEl(m.valid_from)),
+      h("span", { class: "heat" }, hits ? `returned ${hits}×` : "never returned"),
+      (m.tags || []).map((t) => h("span", null, "#" + t))));
+  art.style.setProperty("--heat", heatPct(hits, maxHits));
+  return art;
+}
+
+/* ---------- skills ---------- */
+
+const SKILL_RE = /^skill:\s*(.+?) \| (.*) \| path:\s*(.+)$/s;
+const skillUse = { v: "all" };
+
+function parseSkill(it) {
+  const m = SKILL_RE.exec(it.content || "");
+  return m ? { name: m[1], desc: m[2], path: m[3] } : { name: (it.content || "").slice(0, 40), desc: "", path: "" };
+}
+
+function skillCard(it, p, maxHits) {
+  const hits = it.hits || 0;
+  const art = h("article", { class: "card" + (hits ? "" : " is-dormant") },
+    h("p", { class: "card-text" }, h("strong", null, p.name), p.desc ? " — " + p.desc : ""),
+    h("div", { class: "card-meta" },
+      h("button", { class: "card-open", type: "button", "data-k": "s-" + it.id, "aria-label": `Open memory #${it.id}`, onclick: (e) => openMemory(it.id, e.currentTarget) }, "#" + it.id),
+      p.path ? h("span", null, p.path.replace(/^~\/\.claude\/backup-2026\/skills-archive\//, "")) : null,
+      h("span", { class: "heat" }, hits ? `recalled ${hits}×` : "never recalled")));
+  art.style.setProperty("--heat", heatPct(hits, maxHits));
+  return art;
+}
+
+function renderSkills(corpus) {
+  const all = corpus.items.filter((x) => x.kind === "skill" && !x.valid_to).map((it) => ({ it, p: parseSkill(it) }));
+  const maxHits = Math.max(1, ...all.map((x) => x.it.hits || 0));
+  const q = $("sq").value.trim().toLowerCase();
+  const rows = all
+    .filter((x) => !q || (x.p.name + " " + x.p.desc).toLowerCase().includes(q))
+    .filter((x) => skillUse.v === "all" || (skillUse.v === "used") === !!x.it.hits)
+    .sort((a, b) => a.p.name.localeCompare(b.p.name));
+
+  // group by name prefix when at least 3 skills share it
+  const prefix = (n) => n.split("-")[0];
+  const size = new Map();
+  for (const x of all) size.set(prefix(x.p.name), (size.get(prefix(x.p.name)) || 0) + 1);
+  const groups = new Map();
+  for (const x of rows) {
+    const k = size.get(prefix(x.p.name)) >= 3 ? prefix(x.p.name) : "other";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(x);
+  }
+  const order = [...groups.entries()].sort((a, b) => (a[0] === "other") - (b[0] === "other") || b[1].length - a[1].length || a[0].localeCompare(b[0]));
+
+  const used = all.filter((x) => x.it.hits).length;
+  $("skillsCount").textContent = all.length ? `${fmtN(rows.length)} of ${fmtN(all.length)} skills · ${fmtN(used)} recalled at least once` : "";
+  $("skillCards").replaceChildren(...(rows.length
+    ? order.flatMap(([k, list]) => [
+        h("div", { class: "lane-head" }, h("h3", null, k), h("small", null, `${list.length} skills`)),
+        h("div", { class: "cards" }, list.map((x) => skillCard(x.it, x.p, maxHits))),
+      ])
+    : [emptyP(all.length ? "No skills match these filters." : "No archived skills yet. Cards of kind “skill” appear here.")]));
+
+  $("sq").oninput = () => renderSkills(corpus);
+  for (const b of $("skillSeg").querySelectorAll("button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.use === skillUse.v));
+    b.onclick = () => { skillUse.v = b.dataset.use; renderSkills(corpus); };
+  }
+}
+
+/* ---------- chronicle ---------- */
+
+function renderChronicle(corpus, recalls, first) {
+  rememberScores(recalls);
+  const items = corpus.items, box = $("chron");
+  if (!items.length) { box.replaceChildren(emptyP("No memories yet, so there is nothing to chart.")); $("chronNote").textContent = ""; return; }
+  const ids = new Set(items.map((m) => m.id));
+  const marks = new Map();
+  for (const e of recalls) for (const id of e.result_ids || []) {
+    if (!ids.has(id)) continue;
+    if (!marks.has(id)) marks.set(id, []);
+    marks.get(id).push({ t: toMs(e.ts), weak: e.top_score != null && e.top_score < S.confSim });
+  }
+  const times = new Set();
+  for (const m of items) { times.add(toMs(m.valid_from)); if (m.valid_to) times.add(toMs(m.valid_to)); }
+  for (const list of marks.values()) for (const x of list) times.add(x.t);
+  const slots = [...times].filter(Number.isFinite).sort((a, b) => a - b);
+  const index = new Map(slots.map((t, i) => [t, i]));
+  const n = slots.length;
+  const pos = (t) => (index.has(t) ? index.get(t) / n : 1);
+  const maxHits = Math.max(1, ...items.map((x) => x.hits || 0));
+
+  const lanes = new Map();
+  for (const m of items) { if (!lanes.has(m.scope)) lanes.set(m.scope, []); lanes.get(m.scope).push(m); }
+  const ordered = [...lanes.entries()].sort((a, b) => b[1].length - a[1].length);
+
+  box.replaceChildren(chronAxis(slots), ...ordered.flatMap(([scope, list]) => {
+    list.sort((a, b) => toMs(a.valid_from) - toMs(b.valid_from) || a.id - b.id);
+    const held = list.filter((m) => !m.valid_to).length;
+    return [h("h3", { class: "lane-scope" }, scope, h("small", null, `${held} held · ${list.length - held} retired`)),
+      ...list.map((m) => chronRow(m, pos, marks.get(m.id) || [], maxHits))];
+  }));
+  const notes = [];
+  if (recalls.length >= 200) notes.push("Dots come from the latest 200 recalls only.");
+  if (corpus.truncated) notes.push(`Showing the newest ${fmtN(corpus.items.length)} of ${fmtN(corpus.total)} memories.`);
+  $("chronNote").textContent = notes.join(" ");
+}
+
+function chronAxis(slots) {
+  const n = slots.length, track = h("div", { class: "axis-track", "aria-hidden": "true" });
+  const spanMs = slots[n - 1] - slots[0];
+  const fmt = (t) => { const d = new Date(t); return spanMs < 36 * 3600e3 ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString(undefined, { day: "numeric", month: "short" }); };
+  const picks = [...new Set([0, Math.round((n - 1) / 3), Math.round((2 * (n - 1)) / 3)])].filter((i) => i < n);
+  picks.forEach((i, k) => { const tk = h("span", { class: "tick" + (k === 0 ? " start" : " mid") }, fmt(slots[i])); tk.style.setProperty("--x", i / n); track.append(tk); });
+  const now = h("span", { class: "tick end" }, "now");
+  now.style.setProperty("--x", 1);
+  track.append(now);
+  return h("div", { class: "axis" }, h("span", { class: "axis-label" }, "memory"), track);
+}
+
+function chronRow(m, pos, marks, maxHits) {
+  const retired = !!m.valid_to, hits = m.hits || 0;
+  const l = pos(toMs(m.valid_from)), r = retired ? pos(toMs(m.valid_to)) : 1;
+  const line = h("span", { class: "line" });
+  line.style.setProperty("--l", Math.min(l, 0.985));
+  line.style.setProperty("--w", Math.max(r - l, 0.015));
+  line.style.setProperty("--heat", heatPct(hits, maxHits));
+  const dots = marks.map((x) => { const d = h("span", { class: "dot" + (x.weak ? " is-weak" : "") }); d.style.setProperty("--x", pos(x.t)); return d; });
+  return h("button", { class: "chron-row" + (retired ? " is-retired" : ""), type: "button", "data-k": "c-" + m.id, onclick: (e) => openMemory(m.id, e.currentTarget) },
+    h("span", { class: "chron-label", title: m.content }, h("span", { class: "chron-id" }, "#" + m.id), clip(m.content, 120),
+      h("span", { class: "sr" }, `, ${retired ? "retired " + fmtAbs(m.valid_to) : "held"}, returned ${hits} times`)),
+    h("span", { class: "chron-track", "aria-hidden": "true" }, line, dots));
+}
+
+/* ---------- recall ---------- */
+
+function memButton(k, m, lead, side, sub) {
+  return h("button", { class: "rank-btn" + (m.valid_to ? " is-retired" : ""), type: "button", "data-k": k, onclick: (e) => openMemory(m.id, e.currentTarget) },
+    h("span", { class: "r" }, lead),
+    h("span", { class: "txt" }, clip(m.content, 180), sub ? h("span", { class: "sub" }, sub) : null),
+    side != null ? h("span", { class: "x" }, side) : null);
+}
+
+function renderRecall(u, corpus) {
+  S.confSim = u.confident_sim ?? S.confSim;
+  $("gapRange").textContent = `best match below ${u.confident_sim} · latest 10 in ${u.days} days`;
+  const weak = u.weak_queries || [];
+  $("gaps").replaceChildren(weak.length
+    ? h("ul", { class: "plain gap-list" }, weak.map(gapItem(u.confident_sim)))
+    : emptyP(u.recalls ? "No gaps. Every recall in this range found a confident match." : "No recalls in this range, so no gaps to show."));
+
+  const top = u.top_memories || [];
+  $("top").replaceChildren(top.length
+    ? h("ol", { class: "plain" }, top.map((m, i) => h("li", null, memButton("t-" + m.id, m, i + 1, `${fmtN(m.hits)}×`,
+      `${m.scope} · last ${fmtRel(m.last_recalled)}${m.valid_to ? " · retired" : ""}`))))
+    : emptyP("No memory has been returned by a recall yet."));
+
+  const never = u.never_recalled || [];
+  $("dormant").replaceChildren(never.length
+    ? h("ul", { class: "plain" }, never.map((m) => h("li", null, memButton("d-" + m.id, m, "·", null, `#${m.id} · ${m.scope} · written ${fmtRel(m.valid_from)}`))))
+    : emptyP("Every held memory has been returned at least once."));
+
+  renderAlike(corpus);
+}
+
+function gapItem(threshold) {
+  return (g) => {
+    const f = h("span", { class: "fill" }), thr = h("span", { class: "thr", title: `confidence threshold ${threshold}` });
+    f.style.setProperty("--w", Math.max(0, Math.min(1, g.top_score ?? 0)));
+    thr.style.setProperty("--x", threshold);
+    return h("li", null,
+      h("div", null, h("p", { class: "gap-q" }, g.query ? `“${g.query}”` : "(empty query)"),
+        h("p", { class: "gap-meta" }, `${g.agent} · ${g.scope} · `, timeEl(g.ts))),
+      h("div", null, h("div", { class: "meter", role: "img", "aria-label": `best match ${fmtScore(g.top_score)} of 1, threshold ${threshold}` }, f, thr),
+        h("div", { class: "meter-cap" }, h("span", null, `best ${fmtScore(g.top_score)}`), h("span", null, `needs ${threshold}`))));
+  };
+}
+
+function lookalikes(items) {
+  const words = (s) => new Set(String(s).toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []);
+  const held = items.filter((m) => !m.valid_to);
+  if (held.length > ALIKE_MAX_ITEMS) return null;
+  const byScope = new Map();
+  for (const m of held) { if (!byScope.has(m.scope)) byScope.set(m.scope, []); byScope.get(m.scope).push({ m, w: words(m.content) }); }
+  const out = [];
+  for (const list of byScope.values()) for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    const a = list[i], b = list[j];
+    let inter = 0;
+    for (const w of a.w) if (b.w.has(w)) inter++;
+    const union = a.w.size + b.w.size - inter;
+    if (union && inter / union >= ALIKE_MIN) out.push({ a: a.m, b: b.m, sim: inter / union });
+  }
+  return out.sort((x, y) => y.sim - x.sim).slice(0, 12);
+}
+
+function renderAlike(corpus) {
+  const pairs = lookalikes(corpus.items), box = $("alike");
+  if (pairs === null) { box.replaceChildren(emptyP(`Too many held memories (over ${ALIKE_MAX_ITEMS}) to compare in the browser.`)); return; }
+  if (!pairs.length) { box.replaceChildren(emptyP("No held memories in the same scope share most of their words.")); return; }
+  box.replaceChildren(
+    h("ul", { class: "plain" }, pairs.map((p, i) => h("li", { class: "pair" },
+      h("p", { class: "pair-head" }, `${p.a.scope} · ${Math.round(p.sim * 100)}% of words shared`),
+      memButton(`a${i}-${p.a.id}`, p.a, "#" + p.a.id, null, null), memButton(`a${i}-${p.b.id}`, p.b, "#" + p.b.id, null, null)))),
+    h("p", { class: "fine" }, "A lexical check, not the server's embeddings. Pairs are candidates to merge or retire, not verdicts."));
+}
+
+/* ---------- log ---------- */
+
+function renderLog(data) {
+  rememberScores(data.items);
+  fillSelect($("fAgent"), (data.agents || []).map((a) => [a, a]), "Every agent");
+  S.ev.total = data.total || 0;
+  const box = $("feed"), items = data.items || [];
+  if (!items.length) {
+    const filtered = S.ev.type || $("fAgent").value;
+    box.replaceChildren(h("li", null, emptyP(filtered ? "No entries match these filters." : "Nothing logged yet. Entries appear here as agents recall, remember and forget.")));
+  } else {
+    let lastDay = "";
+    const nodes = [];
+    for (const e of items) {
+      const d = toDate(e.ts), day = d ? d.toDateString() : "";
+      if (day !== lastDay) { lastDay = day; nodes.push(h("li", { class: "day-sep" }, d ? d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Undated")); }
+      nodes.push(logEntry(e));
+    }
+    box.replaceChildren(...nodes);
+  }
+  const ev = S.ev;
+  $("evPage").textContent = ev.total ? `${fmtN(ev.offset + 1)}–${fmtN(ev.offset + items.length)} of ${fmtN(ev.total)}` : "";
+  $("evPrev").disabled = ev.offset === 0;
+  $("evNext").disabled = ev.offset + EV_PAGE >= ev.total;
+}
+
+function logEntry(e) {
+  const open = S.expanded.has(e.id), did = "evd-" + e.id;
+  const isQuery = e.type === "recall" || e.type === "search_docs";
+  const detail = h("div", { class: "ev-detail", id: did, hidden: !open }, logDetail(e));
+  const row = h("button", { class: "ev-row", type: "button", "data-k": "e-" + e.id, "aria-expanded": String(open), "aria-controls": did },
+    h("span", { class: "ev-time" }, h("time", { datetime: e.ts, title: fmtAbs(e.ts) }, fmtClock(e.ts))),
+    stamp(typeKey(e.type), TYPES[e.type] || e.type),
+    h("span", { class: "ev-who", title: `${e.agent} via ${e.source}` }, `${e.agent} · ${e.source}`),
+    h("span", { class: "ev-sum" }, summary(e)),
+    h("span", { class: "ev-ms" }, isQuery && e.latency_ms != null ? fmtMs(e.latency_ms) : ""));
+  row.addEventListener("click", () => {
+    const now = row.getAttribute("aria-expanded") !== "true";
+    row.setAttribute("aria-expanded", String(now));
+    detail.hidden = !now;
+    now ? S.expanded.add(e.id) : S.expanded.delete(e.id);
+  });
+  return h("li", null, row, detail);
+}
+
+function logDetail(e) {
+  const kv = [["scope", e.scope], ["query", e.query]];
+  if (e.type === "recall" || e.type === "search_docs") kv.push(["k", e.k], ["results", e.n_results], ["best score", fmtScore(e.top_score)],
+    ["served chars", fmtN(e.served_chars)], ["baseline chars", fmtN(e.baseline_chars)], ["search time", fmtMs(e.latency_ms)]);
+  kv.push(["when", fmtAbs(e.ts)], ["source", e.source]);
+  const ids = e.result_ids || [];
+  const extra = e.detail && Object.keys(e.detail).length ? h("pre", { class: "json" }, JSON.stringify(e.detail, null, 2)) : null;
+  return [
+    h("dl", { class: "kv" }, kv.filter(([, v]) => v != null && v !== "").map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
+    ids.length ? h("div", { class: "ids", style: "margin-top:12px" }, ids.map((id) => h("button", { class: "btn small", type: "button", "data-k": `i-${e.id}-${id}`, onclick: (ev) => openMemory(id, ev.currentTarget) }, "#" + id))) : null,
+    extra,
+  ];
+}
+
+/* ---------- drawer ---------- */
+
+async function openMemory(id, opener) {
+  showOverlay("drawer", opener);
+  const key = String(id);
+  $("drawer").dataset.id = key;
+  $("dTitle").textContent = "Memory #" + key;
+  $("dBody").replaceChildren(h("p", { class: "fine" }, "Fetching the card…"));
+  $("dTitle").focus();
+  try {
+    const m = await api("/api/v1/memory/" + encodeURIComponent(key));
+    if ($("drawer").hidden || $("drawer").dataset.id !== key) return;
+    put($("dBody"), drawerBody(m));
+  } catch (e) {
+    if (e instanceof AuthError) { lock("Token rejected."); return; }
+    if ($("drawer").dataset.id !== key) return;
+    $("dBody").replaceChildren(h("p", { class: "notice" }, e.status === 404 ? `No memory #${key} on file.` : `Couldn't fetch this card: ${e.message}.`));
+  }
+}
+
+function drawerBody(m) {
+  const retired = !!m.valid_to, hits = m.hits || 0, events = m.events || [];
+  const life = h("ol", { class: "life" },
+    h("li", { class: "done" }, h("b", null, "Written"), h("span", null, fmtAbs(m.valid_from)), h("span", null, "by " + m.created_by)),
+    h("li", { class: hits ? "done" : "" }, h("b", null, "Returned"), h("span", null, hits ? `${fmtN(hits)} ${plural(hits, "time", "times")}` : "not yet"),
+      hits ? h("span", null, "last ", timeEl(m.last_recalled)) : null),
+    retired ? h("li", { class: "end" }, h("b", null, "Retired"), h("span", null, fmtAbs(m.valid_to)))
+      : h("li", null, h("b", null, "Still held"), h("span", null, "valid since ", timeEl(m.valid_from))));
+  const fields = [["kind", m.kind], ["scope", m.scope], ["tags", (m.tags || []).map((t) => "#" + t).join(" ") || "none"], ["verified", m.verified_at ? fmtAbs(m.verified_at) : null]];
+  const src = m.source && typeof m.source === "object" && Object.keys(m.source).length ? JSON.stringify(m.source, null, 2) : null;
+  const hist = events.length
+    ? h("ol", { class: "plain hist" }, events.map((e) => {
+      const sc = S.scores.get(e.id);
+      return h("li", null, timeEl(e.ts),
+        h("span", null, h("span", { class: "q" }, e.query ? `“${e.query}”` : "(empty query)"), " ",
+          h("span", { class: "who" }, `${e.agent} · ${TYPES[e.type] || e.type}`),
+          sc != null && sc < S.confSim ? h("span", { class: "weak" }, ` · weak match ${fmtScore(sc)}`) : null));
+    }))
+    : emptyP("No recall has returned this memory yet.");
+  return [
+    h("div", { class: "d-state" }, stamp(retired ? "retired" : "held", retired ? "retired" : "held"), h("span", null, `${m.kind} · ${m.scope}`)),
+    h("blockquote", { class: "d-text" + (retired ? " is-retired" : "") }, m.content),
+    life,
+    h("dl", { class: "kv" }, fields.filter(([, v]) => v).map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
+    src ? h("pre", { class: "json" }, src) : null,
+    h("h3", null, "Recalls that returned it"),
+    h("p", { class: "fine", style: "margin:0 0 8px" }, "The latest 20, newest first."),
+    hist,
+  ];
+}
+
+/* ---------- overlays ---------- */
+
+const overlayOpen = () => !$("drawer").hidden || !$("palette").hidden;
+function showOverlay(id, opener) {
+  const op = opener || S.opener || document.activeElement;
+  for (const o of ["drawer", "palette"]) $(o).hidden = o !== id;
+  S.opener = op;
+  $("app").inert = true;
+  document.body.classList.add("no-scroll");
+}
+function closeOverlays(restore = true) {
+  $("drawer").hidden = true;
+  $("palette").hidden = true;
+  $("app").inert = false;
+  document.body.classList.remove("no-scroll");
+  const op = S.opener;
+  S.opener = null;
+  if (restore && op && document.contains(op) && typeof op.focus === "function") op.focus();
+}
+
+/* ---------- palette ---------- */
+
+function openPalette() {
+  S.opener = null;
+  showOverlay("palette", document.activeElement);
+  $("palIn").value = "";
+  buildPalette();
+  $("palIn").focus();
+  if (!S.corpus) fetchCorpus().then((c) => { S.corpus = c; if (!$("palette").hidden) buildPalette(); }).catch(() => { /* palette still works without memory search */ });
+}
+
+function paletteItems(q) {
+  const t = q.trim(), lc = t.toLowerCase(), out = [];
+  const idm = t.match(/^#?(\d+)$/);
+  if (idm) out.push({ label: `Open memory #${idm[1]}`, hint: "card", run: (op) => openMemory(idm[1], op) });
+  const commands = [
+    ...VIEWS.map((v, i) => ({ label: `Go to ${TITLES[v]}`, hint: String(i + 1), run: () => setView(v) })),
+    { label: "Refresh now", hint: "r", run: () => load() },
+    { label: S.auto ? "Turn auto-refresh off" : "Turn auto-refresh on (every 15s)", hint: "a", run: toggleAuto },
+    ...["7", "30", "90"].map((d) => ({ label: `Range: last ${d} days`, hint: d === S.days ? "current" : "", run: () => setDays(d) })),
+    { label: "Forget token", hint: "lock", run: () => lock() },
+  ];
+  out.push(...commands.filter((c) => !lc || c.label.toLowerCase().includes(lc)));
+  if (t && !idm) {
+    for (const m of (S.corpus ? S.corpus.items : []).filter((x) => String(x.content).toLowerCase().includes(lc)).slice(0, 6))
+      out.push({ label: clip(m.content, 110), hint: `#${m.id}${m.valid_to ? " · retired" : ""}`, run: (op) => openMemory(m.id, op) });
+    out.push({ label: `Search the stacks for “${clip(t, 40)}”`, hint: "stacks", run: () => { $("q").value = t; S.mem.offset = 0; setView("stacks"); } });
+  }
+  return out;
+}
+
+function buildPalette() {
+  S.pal.items = paletteItems($("palIn").value);
+  S.pal.active = 0;
+  const list = $("palList");
+  list.replaceChildren(...S.pal.items.map((it, i) => h("li", { id: "pal-" + i, role: "option", "aria-selected": String(i === 0),
+    onclick: () => runPalette(i), onmousemove: () => markPalette(i) }, h("span", null, it.label), it.hint ? h("small", null, it.hint) : null)));
+  if (!S.pal.items.length) list.append(h("li", { role: "option", "aria-disabled": "true", "aria-selected": "false" }, h("span", null, "No matches")));
+  $("palIn").setAttribute("aria-activedescendant", S.pal.items.length ? "pal-0" : "");
+}
+function markPalette(i) {
+  const n = S.pal.items.length;
+  if (!n) return;
+  S.pal.active = (i + n) % n;
+  [...$("palList").children].forEach((li, k) => li.setAttribute("aria-selected", String(k === S.pal.active)));
+  const cur = $("pal-" + S.pal.active);
+  $("palIn").setAttribute("aria-activedescendant", cur.id);
+  cur.scrollIntoView({ block: "nearest" });
+}
+function runPalette(i) {
+  const it = S.pal.items[i];
+  if (!it) return;
+  const op = S.opener;
+  closeOverlays(true);
+  it.run(op);
+}
+
+/* ---------- view state ---------- */
+
+function setView(v) {
+  if (!VIEWS.includes(v)) v = "ledger";
+  S.view = v;
+  for (const t of document.querySelectorAll('[role="tab"]')) {
+    const on = t.dataset.view === v;
+    t.setAttribute("aria-selected", String(on));
+    t.tabIndex = on ? 0 : -1;
+  }
+  for (const x of VIEWS) $("v-" + x).hidden = x !== v;
+  $("rangeWrap").hidden = !(v === "ledger" || v === "recall");
+  if (location.hash !== "#" + v) history.replaceState(null, "", "#" + v);
+  load();
+}
+function setDays(d) { S.days = d; $("days").value = d; store.set("mc_days", d); S.painted.delete("ledger"); S.painted.delete("recall"); load(); }
+
+function toggleAuto() { S.auto = !S.auto; store.set("mc_auto", S.auto ? "1" : "0"); applyAuto(); if (S.auto) load(); }
+function applyAuto() {
+  clearInterval(S.timer);
+  S.timer = null;
+  $("autoBtn").setAttribute("aria-pressed", String(S.auto));
+  if (S.auto && S.token) S.timer = setInterval(() => { if (!document.hidden && !overlayOpen() && !S.typing) load(); }, AUTO_MS);
+}
+
+function lock(msg = "") {
+  store.del("mc_token");
+  S.token = "";
+  S.seq++;
+  clearInterval(S.timer);
+  S.timer = null;
+  closeOverlays(false);
+  S.corpus = null;
+  S.painted.clear();
+  S.expanded.clear();
+  S.scores.clear();
+  for (const n of document.querySelectorAll(".slot")) n.replaceChildren();
+  for (const n of document.querySelectorAll(".notice")) n.hidden = true;
+  setSync("idle", "not synced");
+  $("app").hidden = true;
+  $("gate").hidden = false;
+  $("gateErr").textContent = msg;
+  $("tok").value = "";
+  $("tok").focus();
+}
+function unlock() {
+  $("gate").hidden = true;
+  $("app").hidden = false;
+  applyAuto();
+  setView(location.hash.slice(1));
+}
+
+/* ---------- wiring ---------- */
+
+$("gateForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const t = $("tok").value.trim();
+  if (!t) { $("gateErr").textContent = "Paste a token first."; return; }
+  S.token = t;
+  store.set("mc_token", t);
+  unlock();
+});
+$("lockBtn").addEventListener("click", () => lock());
+$("refreshBtn").addEventListener("click", () => load());
+$("autoBtn").addEventListener("click", toggleAuto);
+$("palBtn").addEventListener("click", openPalette);
+$("days").addEventListener("change", (e) => setDays(e.target.value));
+$("toLog").addEventListener("click", () => setView("log"));
+$("hostName").textContent = location.host;
+
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+for (const t of tabs) {
+  t.addEventListener("click", () => setView(t.dataset.view));
+  t.addEventListener("keydown", (e) => {
+    const i = tabs.indexOf(t);
+    const next = { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (next == null) return;
+    e.preventDefault();
+    const target = tabs[(next + tabs.length) % tabs.length];
+    target.focus();
+    setView(target.dataset.view);
+  });
+}
+
+$("q").addEventListener("input", () => {
+  clearTimeout(S.typing);
+  S.typing = setTimeout(() => { S.typing = null; S.mem.offset = 0; load(); }, 260);
+});
+for (const id of ["fScope", "fKind"]) $(id).addEventListener("change", () => { S.mem.offset = 0; load(); });
+for (const b of $("stateSeg").querySelectorAll("button")) b.addEventListener("click", () => {
+  S.mem.st = b.dataset.st;
+  S.mem.offset = 0;
+  for (const x of $("stateSeg").querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+  load();
+});
+$("memPrev").addEventListener("click", () => { S.mem.offset = Math.max(0, S.mem.offset - PAGE); load(); });
+$("memNext").addEventListener("click", () => { S.mem.offset += PAGE; load(); });
+
+for (const b of $("typeSeg").querySelectorAll("button")) b.addEventListener("click", () => {
+  S.ev.type = b.dataset.type;
+  S.ev.offset = 0;
+  for (const x of $("typeSeg").querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+  load();
+});
+$("fAgent").addEventListener("change", () => { S.ev.offset = 0; load(); });
+$("evPrev").addEventListener("click", () => { S.ev.offset = Math.max(0, S.ev.offset - EV_PAGE); load(); });
+$("evNext").addEventListener("click", () => { S.ev.offset += EV_PAGE; load(); });
+
+for (const n of document.querySelectorAll("[data-close]")) n.addEventListener("click", () => closeOverlays());
+$("palIn").addEventListener("input", buildPalette);
+$("palIn").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") { e.preventDefault(); markPalette(S.pal.active + 1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); markPalette(S.pal.active - 1); }
+  else if (e.key === "Enter") { e.preventDefault(); runPalette(S.pal.active); }
+});
+
+document.addEventListener("keydown", (e) => {
+  if ($("app").hidden) return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    $("palette").hidden ? openPalette() : closeOverlays();
+    return;
+  }
+  if (e.key === "Escape" && overlayOpen()) { e.preventDefault(); closeOverlays(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey || overlayOpen()) return;
+  if (e.target instanceof Element && e.target.closest("input, select, textarea")) return;
+  if (/^[1-6]$/.test(e.key)) setView(VIEWS[Number(e.key) - 1]);
+  else if (e.key === "/") { e.preventDefault(); openPalette(); }
+  else if (e.key === "r") load();
+  else if (e.key === "a") toggleAuto();
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden && S.auto && S.token && !overlayOpen()) load(); });
+window.addEventListener("hashchange", () => { if (S.token && location.hash.slice(1) !== S.view) setView(location.hash.slice(1)); });
+
+$("days").value = S.days;
+if (S.token) unlock();
+else { $("gate").hidden = false; $("tok").focus(); }
+</script>
+</body>
+</html>
