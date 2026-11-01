@@ -3,7 +3,8 @@ import json
 import re
 import logging
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Tuple
+from contextlib import contextmanager
+from typing import List, Dict, Any, Iterator, Optional, Tuple
 import array
 import math
 from config import DB_PATH
@@ -56,12 +57,22 @@ class MemoryDatabase:
         self.db_path = str(db_path)
         self._init_db()
 
-    def _get_conn(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_conn(self) -> Iterator[sqlite3.Connection]:
+        """Yield a connection that commits on success, rolls back on error, and always closes.
+
+        A bare sqlite3 connection used as a context manager only commits; it never closes,
+        which leaked one file descriptor pair per call until the process hit EMFILE.
+        """
         conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
         with self._get_conn() as conn:
@@ -228,18 +239,16 @@ class MemoryDatabase:
         skipped = []
         pending_embedding_ids = []
 
-        with self._get_conn() as conn:
-            if supersedes is not None:
-                conn.execute(
-                    "UPDATE memories SET valid_to = ? WHERE id = ? AND valid_to IS NULL",
-                    (now, supersedes)
-                )
+        superseded = False
 
+        with self._get_conn() as conn:
             # Pre-load active memory embeddings in same scope for near-duplicate check.
-            # Rows with NULL embedding are ignored by the dedup scan.
+            # Rows with NULL embedding are ignored by the dedup scan, and so is the row being
+            # superseded, since its replacement is expected to be similar to it.
             active_rows = conn.execute(
-                "SELECT id, content, embedding FROM memories WHERE scope = ? AND valid_to IS NULL AND embedding IS NOT NULL",
-                (scope,)
+                "SELECT id, content, embedding FROM memories "
+                "WHERE scope = ? AND valid_to IS NULL AND embedding IS NOT NULL AND id IS NOT ?",
+                (scope, supersedes)
             ).fetchall()
 
             existing_ids = [r["id"] for r in active_rows]
@@ -310,12 +319,23 @@ class MemoryDatabase:
                 existing_contents.append(clean_content)
                 existing_vectors.append(emb_vec)
 
+            # Retire the old row only once its replacement exists: a newly saved fact, or an
+            # active memory the new fact duplicated. Otherwise the old fact would vanish.
+            replacement_id = saved_ids[0] if saved_ids else (skipped[0]["existing_id"] if skipped else None)
+            if supersedes is not None and replacement_id is not None:
+                cur = conn.execute(
+                    "UPDATE memories SET valid_to = ?, retired_reason = ? WHERE id = ? AND valid_to IS NULL",
+                    (now, f"superseded by #{replacement_id}", supersedes)
+                )
+                superseded = cur.rowcount > 0
+
         return {
             "saved_ids": saved_ids,
             "near_duplicates": near_duplicates,
             "skipped": skipped,
             "count": len(saved_ids),
             "pending_embedding_ids": pending_embedding_ids,
+            "superseded": superseded,
         }
 
     def recall(
