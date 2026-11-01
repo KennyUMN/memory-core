@@ -537,3 +537,75 @@ def test_thread_safety(tmp_path):
         count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
         assert count == 24
 
+
+
+def _open_fd_count() -> int:
+    for fd_dir in ("/proc/self/fd", "/dev/fd"):
+        if os.path.isdir(fd_dir):
+            return len(os.listdir(fd_dir))
+    pytest.skip("no fd directory on this platform")
+
+
+def test_connections_are_closed(tmp_path):
+    """Each operation must close its sqlite connection, or fds leak until EMFILE."""
+    db = LoggedDatabase(tmp_path / "test_fds.db")
+    db.remember(facts=["fd leak probe"], embeddings=[make_embedding(1)])
+    before = _open_fd_count()
+    for _ in range(200):
+        db.recall("fd leak probe", make_embedding(1), k=3)
+        db.get_profile()
+    assert _open_fd_count() - before < 10
+
+
+def test_get_conn_rolls_back_and_closes_on_error(tmp_path):
+    db = MemoryDatabase(tmp_path / "test_rollback.db")
+    with pytest.raises(RuntimeError):
+        with db._get_conn() as conn:
+            conn.execute("INSERT INTO profile (key, value, updated_at) VALUES ('k', 'v', 'now')")
+            raise RuntimeError("boom")
+    assert db.get_profile() == {}
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.execute("SELECT 1")
+
+
+def _is_active(db, memory_id):
+    with db._get_conn() as conn:
+        row = conn.execute("SELECT valid_to, retired_reason FROM memories WHERE id = ?", (memory_id,)).fetchone()
+    return row["valid_to"] is None, row["retired_reason"]
+
+
+def test_supersede_replaces_old_fact(tmp_path):
+    db = MemoryDatabase(tmp_path / "test_supersede.db")
+    old = make_embedding(30)
+    old_id = db.remember(facts=["Backend port is 8000"], embeddings=[old])["saved_ids"][0]
+
+    # The replacement is similar to the row it supersedes; that must not count as a duplicate.
+    res = db.remember(facts=["Backend port is 8765"], embeddings=[make_near_embedding(old, 0.97, seed=31)],
+                      supersedes=old_id)
+    assert len(res["saved_ids"]) == 1
+    assert res["superseded"] is True
+    assert _is_active(db, old_id) == (False, f"superseded by #{res['saved_ids'][0]}")
+
+
+def test_supersede_keeps_old_fact_when_nothing_saved(tmp_path):
+    db = MemoryDatabase(tmp_path / "test_supersede_empty.db")
+    old_id = db.remember(facts=["Keep me"], embeddings=[make_embedding(40)])["saved_ids"][0]
+
+    res = db.remember(facts=["   "], embeddings=[make_embedding(41)], supersedes=old_id)
+    assert res["saved_ids"] == []
+    assert res["superseded"] is False
+    assert _is_active(db, old_id) == (True, None)
+
+
+def test_supersede_with_duplicate_points_at_existing_memory(tmp_path):
+    db = MemoryDatabase(tmp_path / "test_supersede_dup.db")
+    current = make_embedding(50)
+    current_id = db.remember(facts=["Deploy with make ship"], embeddings=[current])["saved_ids"][0]
+    old_id = db.remember(facts=["Deploy with fab deploy"], embeddings=[make_embedding(51)])["saved_ids"][0]
+
+    res = db.remember(facts=["Deploy using make ship"], embeddings=[make_near_embedding(current, 0.95, seed=52)],
+                      supersedes=old_id)
+    assert res["saved_ids"] == []
+    assert res["skipped"][0]["existing_id"] == current_id
+    assert res["superseded"] is True
+    assert _is_active(db, old_id) == (False, f"superseded by #{current_id}")
