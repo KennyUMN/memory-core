@@ -9,7 +9,7 @@ import random
 from typing import List
 import pytest
 
-from database import MemoryDatabase, DUPLICATE_THRESHOLD, redact_secrets
+from database import MemoryDatabase, DUPLICATE_THRESHOLD, SupersedeError, redact_secrets
 from usage import LoggedDatabase
 
 # Optional: point at a copy of a production DB snapshot to test the migration on real data.
@@ -591,9 +591,8 @@ def test_supersede_keeps_old_fact_when_nothing_saved(tmp_path):
     db = MemoryDatabase(tmp_path / "test_supersede_empty.db")
     old_id = db.remember(facts=["Keep me"], embeddings=[make_embedding(40)])["saved_ids"][0]
 
-    res = db.remember(facts=["   "], embeddings=[make_embedding(41)], supersedes=old_id)
-    assert res["saved_ids"] == []
-    assert res["superseded"] is False
+    with pytest.raises(SupersedeError):
+        db.remember(facts=["   "], embeddings=[make_embedding(41)], supersedes=old_id)
     assert _is_active(db, old_id) == (True, None)
 
 

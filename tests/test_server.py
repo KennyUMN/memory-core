@@ -43,6 +43,9 @@ class FakeDatabase:
         self.profiles: Dict[str, str] = {}
         self.forget_calls: List[Tuple[int, str]] = []
 
+    def newest_in_scope(self, scope: Optional[str] = None) -> Optional[str]:
+        return None
+
     def remember(
         self,
         facts: List[str],

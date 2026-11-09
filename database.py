@@ -11,6 +11,45 @@ from config import DB_PATH
 
 DUPLICATE_THRESHOLD = 0.90
 
+# Bulk kinds (indexed skills, doc chunks) drown out facts in delta and context packs.
+BULK_KINDS = ("skill", "doc_chunk")
+SECONDS_PER_DAY = 86400
+
+
+def parse_since(value: str) -> str:
+    """Normalize an ISO 8601 time to the UTC isoformat the memories table stores.
+
+    Stored timestamps compare as strings, so a raw 'Z' suffix or a naive time would sort wrong.
+    """
+    try:
+        dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        raise ValueError(f"since is not an ISO 8601 time: {str(value)[:60]!r}")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+def age_days(ts: Optional[str], now: datetime) -> Optional[float]:
+    if not ts:
+        return None
+    dt = datetime.fromisoformat(ts)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return round((now - dt).total_seconds() / SECONDS_PER_DAY, 1)
+
+
+def scope_filter(scope: Optional[str]) -> Tuple[str, List[str]]:
+    """SQL clause for a scope: 'all'/None means every scope; any other scope also includes 'global'."""
+    if not scope or scope == "all":
+        return "1=1", []
+    allowed = ["global"] if scope == "global" else ["global", scope]
+    return f"scope IN ({','.join('?' * len(allowed))})", allowed
+
+
+class SupersedeError(ValueError):
+    """A supersede target is missing or already retired, or no replacement fact was given."""
+
 SECRET_PATTERNS = [
     re.compile(r'(?i)(?:api_key|token|bearer|secret|password|access_key)[\s:=]+["\']?([a-zA-Z0-9_\-\.]{16,})["\']?'),
     re.compile(r'ghp_[a-zA-Z0-9]{36}'),
@@ -242,6 +281,19 @@ class MemoryDatabase:
         superseded = False
 
         with self._get_conn() as conn:
+            # Claim the old row first: the UPDATE takes SQLite's write lock, so two writers
+            # superseding the same fact cannot both succeed. Raising rolls the whole call back.
+            if supersedes is not None:
+                cur = conn.execute(
+                    "UPDATE memories SET valid_to = ? WHERE id = ? AND valid_to IS NULL",
+                    (now, supersedes)
+                )
+                if cur.rowcount == 0:
+                    raise SupersedeError(
+                        f"memory #{supersedes} is missing or already retired; "
+                        "recall again and supersede the current fact"
+                    )
+
             # Pre-load active memory embeddings in same scope for near-duplicate check.
             # Rows with NULL embedding are ignored by the dedup scan, and so is the row being
             # superseded, since its replacement is expected to be similar to it.
@@ -319,15 +371,17 @@ class MemoryDatabase:
                 existing_contents.append(clean_content)
                 existing_vectors.append(emb_vec)
 
-            # Retire the old row only once its replacement exists: a newly saved fact, or an
-            # active memory the new fact duplicated. Otherwise the old fact would vanish.
-            replacement_id = saved_ids[0] if saved_ids else (skipped[0]["existing_id"] if skipped else None)
-            if supersedes is not None and replacement_id is not None:
-                cur = conn.execute(
-                    "UPDATE memories SET valid_to = ?, retired_reason = ? WHERE id = ? AND valid_to IS NULL",
-                    (now, f"superseded by #{replacement_id}", supersedes)
+            # The replacement is a newly saved fact or an active memory the new fact duplicated.
+            # Without one, the old fact would vanish, so roll back instead.
+            if supersedes is not None:
+                replacement_id = saved_ids[0] if saved_ids else (skipped[0]["existing_id"] if skipped else None)
+                if replacement_id is None:
+                    raise SupersedeError(f"no replacement fact given for memory #{supersedes}")
+                conn.execute(
+                    "UPDATE memories SET retired_reason = ? WHERE id = ?",
+                    (f"superseded by #{replacement_id}", supersedes)
                 )
-                superseded = cur.rowcount > 0
+                superseded = True
 
         return {
             "saved_ids": saved_ids,
@@ -371,7 +425,7 @@ class MemoryDatabase:
                 params.extend(allowed_scopes)
 
             where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-            sql = f"SELECT id, kind, scope, content, embedding, source, tags, created_by, valid_from, valid_to, verified_at FROM memories {where_sql}"
+            sql = f"SELECT id, kind, scope, content, embedding, source, tags, created_by, valid_from, valid_to, verified_at, retired_reason FROM memories {where_sql}"
             
             rows = conn.execute(sql, params).fetchall()
             if not rows:
@@ -422,6 +476,7 @@ class MemoryDatabase:
             # 3. Reciprocal Rank Fusion (RRF)
             all_match_ids = set(vector_ranks.keys()).union(set(fts_ranks.keys()))
             scored_candidates = []
+            now = datetime.now(timezone.utc)
 
             for mid in all_match_ids:
                 v_rank = vector_ranks.get(mid, 1000)
@@ -442,6 +497,8 @@ class MemoryDatabase:
                     "valid_from": r["valid_from"],
                     "valid_to": r["valid_to"],
                     "verified_at": r["verified_at"],
+                    "retired_reason": r["retired_reason"],
+                    "age_days": age_days(r["valid_from"], now),
                     "similarity": round(vector_scores.get(mid, 0.0), 4),
                     "rrf_score": round(rrf_score + trust_bonus, 6)
                 })
@@ -457,6 +514,48 @@ class MemoryDatabase:
                 (now, reason, memory_id)
             )
             return cur.rowcount > 0
+
+    def newest_in_scope(self, scope: Optional[str] = None) -> Optional[str]:
+        """Time of the newest active non-bulk memory visible from a scope, so callers can tell stale memory from fresh."""
+        clause, params = scope_filter(scope)
+        bulk = ",".join("?" * len(BULK_KINDS))
+        with self._get_conn() as conn:
+            return conn.execute(
+                f"SELECT MAX(valid_from) FROM memories WHERE valid_to IS NULL AND kind NOT IN ({bulk}) AND {clause}",
+                [*BULK_KINDS, *params],
+            ).fetchone()[0]
+
+    def delta(self, since: str, scope: Optional[str] = None, limit: int = 50) -> Dict[str, Any]:
+        """Memories added and retired since a time, oldest first, skipping bulk kinds."""
+        since_iso = parse_since(since)
+        clause, params = scope_filter(scope)
+        bulk = ",".join("?" * len(BULK_KINDS))
+        base = f"FROM memories WHERE kind NOT IN ({bulk}) AND {clause}"
+        with self._get_conn() as conn:
+            added = conn.execute(
+                f"SELECT id, kind, scope, content, created_by, valid_from {base} AND valid_from >= ? ORDER BY valid_from LIMIT ?",
+                [*BULK_KINDS, *params, since_iso, limit],
+            ).fetchall()
+            retired = conn.execute(
+                f"SELECT id, kind, scope, content, valid_to, retired_reason {base} AND valid_to >= ? ORDER BY valid_to LIMIT ?",
+                [*BULK_KINDS, *params, since_iso, limit],
+            ).fetchall()
+        return {"since": since_iso, "added": [dict(r) for r in added], "retired": [dict(r) for r in retired]}
+
+    def recent(self, scope: Optional[str] = None, kinds: Optional[List[str]] = None, limit: int = 8) -> List[Dict[str, Any]]:
+        """Newest active memories visible from a scope, skipping bulk kinds unless kinds names them."""
+        clause, params = scope_filter(scope)
+        if kinds:
+            kind_sql, kind_params = f"kind IN ({','.join('?' * len(kinds))})", list(kinds)
+        else:
+            kind_sql, kind_params = f"kind NOT IN ({','.join('?' * len(BULK_KINDS))})", list(BULK_KINDS)
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT id, kind, scope, content, created_by, valid_from FROM memories "
+                f"WHERE valid_to IS NULL AND {kind_sql} AND {clause} ORDER BY valid_from DESC LIMIT ?",
+                [*kind_params, *params, limit],
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def missing_embeddings(self, limit: int = 32) -> List[Tuple[int, str]]:
         with self._get_conn() as conn:

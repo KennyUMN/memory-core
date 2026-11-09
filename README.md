@@ -6,10 +6,12 @@ I run it on a home server and use it daily across agents, so a fact one agent le
 
 ## Features
 
-- **MCP server** at `/mcp` with six tools: `memory_profile`, `memory_recall`, `memory_remember`, `memory_forget`, `memory_timeline`, `memory_search_docs`.
+- **MCP server** at `/mcp` with eight tools: `memory_profile`, `memory_recall`, `memory_remember`, `memory_forget`, `memory_timeline`, `memory_search_docs`, `memory_delta` (what was added or retired since a time), and `memory_context_pack` (profile, top memories, and recent episodes in one call for session start).
+- **Provenance and freshness**: `remember` takes a `source`; `recall` returns each fact's `age_days`, the scope's `newest_in_scope`, and with `include_superseded` the replaced facts and why they were retired.
+- **Skill sources**: GitHub repos of `SKILL.md` files are cloned and indexed as `kind=skill` memories in the `skills-archive` scope, with one-click updates on the dashboard.
 - **REST API** under `/api/v1/*` (remember, recall, forget, browse, stats, usage, events) for scripts and non-MCP clients.
 - **Hybrid retrieval**: SQLite FTS5 (BM25) plus dense embeddings (Qwen3-Embedding-0.6B through any OpenAI-compatible endpoint), fused with Reciprocal Rank Fusion. If the embedding service is down, recall falls back to BM25 instead of failing. Memories with NULL embeddings remain retrievable via BM25.
-- **Write hygiene**: near-duplicate detection on `remember` (cosine ≥ 0.90 within a scope, skipped when dedup=True), explicit `supersedes` for replacing old facts, soft-delete with a reason on `forget` (persisted in `retired_reason`), and automatic redaction of API keys, AWS keys, PEM private keys, and tokens before storage.
+- **Write hygiene**: near-duplicate detection on `remember` (cosine ≥ 0.90 within a scope, skipped when dedup=True), explicit `supersedes` for replacing old facts (rejected with 409 if the target is missing or already retired), soft-delete with a reason on `forget` (persisted in `retired_reason`), and automatic redaction of API keys, AWS keys, PEM private keys, and tokens before storage.
 - **Resilient embeddings**: nullable embeddings allow saving memories when the embedder is unavailable (tracking pending row IDs for backfill via `missing_embeddings` and `set_embedding`).
 - **Per-agent auth and usage log**: each agent gets its own bearer token; every recall, remember, and forget is logged with the agent name, so the dashboard shows who uses what.
 - **Dashboard** at `/dashboard` for browsing memories, usage, and history.

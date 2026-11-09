@@ -2,27 +2,34 @@ import asyncio
 from typing import Annotated, List, Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Request, Depends, status
-from fastapi.responses import JSONResponse, HTMLResponse, Response
+from fastapi.responses import JSONResponse, HTMLResponse, Response, FileResponse
+from starlette.background import BackgroundTask
 from pathlib import Path
 import logging
 import re
 import httpx
 from pydantic import BaseModel, Field, StringConstraints
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
 from config import HOST, PORT, TOKENS
 from embedder import EmbedderClient, EmbeddingError, CircuitOpenError
-from database import redact_secrets
+from database import redact_secrets, SupersedeError
 from usage import LoggedDatabase, current_agent, current_source
+import os
+import skills
 
 MAX_FACTS, MAX_FACT_CHARS, MAX_K, MAX_QUERY_CHARS = 100, 20000, 50, 2000
+MAX_SOURCE_CHARS = 500
+PACK_EPISODES = 5
 BACKFILL_INTERVAL = 60.0
 BACKFILL_BATCH_SIZE = 32
 
 # Initialize embedder & DB
 embedder = EmbedderClient()
 db = LoggedDatabase()
+skills.ensure_schema(db)
 log = logging.getLogger("memory-core")
 
 
@@ -44,6 +51,32 @@ async def embed_query_or_none(query: str) -> Optional[List[float]]:
     except (httpx.HTTPError, EmbeddingError) as exc:
         log.warning("embedding unavailable, recall degraded to BM25-only: %s", exc)
         return None
+
+
+def source_ref(source: Optional[str]) -> Optional[Dict[str, str]]:
+    """Provenance for a remembered fact, stored in the memories.source JSON column."""
+    if not source or not source.strip():
+        return None
+    return {"ref": source.strip()[:MAX_SOURCE_CHARS]}
+
+
+async def build_context_pack(scope: str, query: Optional[str], k: int) -> Dict[str, Any]:
+    """Profile, recent episodes, and the top memories for a scope in one bounded call."""
+    k = max(1, min(k, MAX_K))
+    if query and query.strip():
+        query = redact_secrets(query[:MAX_QUERY_CHARS])
+        q_emb = await embed_query_or_none(query)
+        memories = await asyncio.to_thread(db.recall, query=query, query_embedding=q_emb, scope=scope, k=k)
+    else:
+        memories = await asyncio.to_thread(db.recent, scope, None, k)
+    episodes = await asyncio.to_thread(db.recent, scope, ["episode"], PACK_EPISODES)
+    return {
+        "scope": scope,
+        "profile": await asyncio.to_thread(db.get_profile),
+        "memories": memories,
+        "recent_episodes": episodes,
+        "newest_in_scope": await asyncio.to_thread(db.newest_in_scope, scope),
+    }
 
 
 async def backfill_embeddings_once() -> int:
@@ -114,16 +147,19 @@ async def memory_recall(
     query: str,
     scope: str = "global",
     kinds: Optional[List[str]] = None,
-    k: int = 8
+    k: int = 8,
+    include_superseded: bool = False
 ) -> Dict[str, Any]:
     """Recall relevant facts, episodes, procedures, or document chunks.
     Performs hybrid BM25 + Vector search fused with Reciprocal Rank Fusion (RRF).
+    Each result carries age_days; newest_in_scope shows how fresh this scope's memory is.
     
     Args:
         query: The search query or question
         scope: Target scope ('global', 'project:<name>', 'agent:<name>', or 'all')
         kinds: List of kinds to filter by (e.g. ['fact', 'procedure', 'doc_chunk'])
         k: Maximum number of ranked results to return (default 8)
+        include_superseded: Also return retired facts with their retired_reason (correction history)
     """
     if not query.strip():
         return {"results": [], "count": 0}
@@ -137,12 +173,14 @@ async def memory_recall(
         query_embedding=q_emb,
         scope=scope,
         kinds=kinds,
-        k=k
+        k=k,
+        include_superseded=include_superseded
     )
     return {
         "results": results,
         "count": len(results),
-        "scope": scope
+        "scope": scope,
+        "newest_in_scope": await asyncio.to_thread(db.newest_in_scope, scope)
     }
 
 @mcp.tool()
@@ -152,7 +190,8 @@ async def memory_remember(
     scope: str = "global",
     supersedes: Optional[int] = None,
     tags: Optional[List[str]] = None,
-    agent_id: Optional[str] = None
+    agent_id: Optional[str] = None,
+    source: Optional[str] = None
 ) -> Dict[str, Any]:
     """Remember one or more atomic, standalone facts or procedures.
     Duplicates at similarity >= 0.90 in the same scope are skipped (not inserted) and reported. Redacts secrets automatically.
@@ -164,6 +203,7 @@ async def memory_remember(
         supersedes: Optional ID of an older fact being replaced
         tags: Optional category tags
         agent_id: Identifier of the agent writing this memory
+        source: Where the fact came from (URL, file path, commit, or "user said"), kept as provenance
     """
     if not facts:
         return {"saved_ids": [], "near_duplicates": [], "count": 0}
@@ -185,6 +225,7 @@ async def memory_remember(
         scope=scope,
         supersedes=supersedes,
         tags=tags,
+        source=source_ref(source),
         created_by=agent_id or "mcp-agent"
     )
     if embedding_failed:
@@ -235,6 +276,36 @@ def memory_timeline(scope: str = "global", since: Optional[str] = None) -> List[
     """
     return db.get_timeline(scope=scope, since=since)
 
+@mcp.tool()
+async def memory_context_pack(
+    scope: str = "global",
+    query: Optional[str] = None,
+    k: int = 8
+) -> Dict[str, Any]:
+    """One-call session bundle: profile, top memories, and recent episodes for a scope.
+    Call at session start and after context compaction instead of separate profile + recall calls.
+
+    Args:
+        scope: Target scope ('global', 'project:<name>', or 'all'); global memories are always included
+        query: Optional task description; ranks memories by relevance instead of recency
+        k: Maximum memories to return (default 8)
+    """
+    return await build_context_pack(scope, query, k)
+
+@mcp.tool()
+def memory_delta(since: str, scope: str = "all") -> Dict[str, Any]:
+    """What changed since a time: memories added and memories retired (with the reason).
+    Skips indexed skills and doc chunks.
+
+    Args:
+        since: ISO 8601 time, e.g. '2026-11-01' or '2026-11-01T08:00:00Z'
+        scope: 'all' (default), 'global', or 'project:<name>'
+    """
+    try:
+        return db.delta(since=since, scope=scope)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+
 
 # --- REST API & Pydantic Schemas ---
 
@@ -244,11 +315,18 @@ class RememberRequest(BaseModel):
     scope: str = "global"
     supersedes: Optional[int] = None
     tags: Optional[List[str]] = None
+    source: Optional[Annotated[str, StringConstraints(max_length=MAX_SOURCE_CHARS)]] = None
 
 class RecallRequest(BaseModel):
     query: Annotated[str, StringConstraints(max_length=MAX_QUERY_CHARS)]
     scope: Optional[str] = "global"
     kinds: Optional[List[str]] = None
+    k: int = Field(8, ge=1, le=MAX_K)
+    include_superseded: bool = False
+
+class ContextPackRequest(BaseModel):
+    scope: str = "global"
+    query: Optional[Annotated[str, StringConstraints(max_length=MAX_QUERY_CHARS)]] = None
     k: int = Field(8, ge=1, le=MAX_K)
 
 class ProfileRequest(BaseModel):
@@ -258,6 +336,9 @@ class ProfileRequest(BaseModel):
 class ForgetRequest(BaseModel):
     id: int
     reason: str = ""
+
+class SkillSourceRequest(BaseModel):
+    url: Annotated[str, StringConstraints(max_length=300)]
 
 # Served at exactly /mcp; auth is enforced below, so Host-header rebinding checks are off.
 mcp_app = mcp.streamable_http_app(
@@ -289,6 +370,11 @@ app = FastAPI(title="Memory Core API", version="1.0.0", lifespan=lifespan,
 @app.exception_handler(EmbeddingError)
 async def embedding_unavailable(_: Request, exc: Exception):
     return JSONResponse({"detail": "embedding service unavailable"}, status_code=503)
+
+
+@app.exception_handler(SupersedeError)
+async def supersede_conflict(_: Request, exc: SupersedeError):
+    return JSONResponse({"detail": str(exc)}, status_code=409)
 
 async def verify_token(authorization: Optional[str] = Header(None)) -> str:
     if not authorization or not authorization.startswith("Bearer "):
@@ -338,6 +424,7 @@ async def remember_api(req: RememberRequest, agent: str = Depends(verify_token))
         scope=req.scope,
         supersedes=req.supersedes,
         tags=req.tags,
+        source=source_ref(req.source),
         created_by=agent
     )
     if embedding_failed:
@@ -354,9 +441,24 @@ async def recall_api(req: RecallRequest, agent: str = Depends(verify_token)):
         query_embedding=q_emb,
         scope=req.scope,
         kinds=req.kinds,
-        k=req.k
+        k=req.k,
+        include_superseded=req.include_superseded
     )
-    return {"results": results, "count": len(results)}
+    return {"results": results, "count": len(results),
+            "newest_in_scope": await asyncio.to_thread(db.newest_in_scope, req.scope)}
+
+
+@app.post("/api/v1/context-pack")
+async def context_pack_api(req: ContextPackRequest, agent: str = Depends(verify_token)):
+    return await build_context_pack(req.scope, req.query, req.k)
+
+
+@app.get("/api/v1/delta")
+def delta_api(since: str, scope: str = "all", agent: str = Depends(verify_token)):
+    try:
+        return db.delta(since=since, scope=scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @app.post("/api/v1/forget")
 def forget_api(req: ForgetRequest, agent: str = Depends(verify_token)):
@@ -396,6 +498,59 @@ def memory_api(memory_id: int, agent: str = Depends(verify_token)):
         raise HTTPException(status_code=404, detail="Memory not found")
     return detail
 
+
+# --- Skill sources (GitHub repos indexed as archived skills) ---
+
+def _skill_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, skills.SourceNotFound):
+        return HTTPException(status_code=404, detail=f"skill source not found: {exc}")
+    return HTTPException(status_code=502, detail=str(exc))
+
+
+SKILL_ERRORS = (ValueError, skills.SourceNotFound, skills.SkillSourceError)
+
+
+@app.get("/api/v1/skills/sources")
+def skill_sources_api(agent: str = Depends(verify_token)):
+    return {"sources": skills.list_sources(db)}
+
+
+@app.post("/api/v1/skills/sources")
+async def add_skill_source_api(req: SkillSourceRequest, agent: str = Depends(verify_token)):
+    try:
+        return await skills.add_source(db, embedder, req.url, agent)
+    except SKILL_ERRORS as exc:
+        raise _skill_error(exc)
+
+
+@app.post("/api/v1/skills/sources/{slug}/update")
+async def update_skill_source_api(slug: str, agent: str = Depends(verify_token)):
+    try:
+        return await skills.update_source(db, embedder, slug, agent)
+    except SKILL_ERRORS as exc:
+        raise _skill_error(exc)
+
+
+@app.delete("/api/v1/skills/sources/{slug}")
+async def remove_skill_source_api(slug: str, agent: str = Depends(verify_token)):
+    try:
+        return await skills.remove_source(db, slug)
+    except SKILL_ERRORS as exc:
+        raise _skill_error(exc)
+
+
+@app.get("/api/v1/skills/bundle")
+async def skill_bundle_api(path: str, agent: str = Depends(verify_token)):
+    """A .tar.gz of one skill folder; extract it into ~/.cache/memory-core/skills."""
+    try:
+        skill_dir = skills.resolve_skill_dir(path)
+    except SKILL_ERRORS as exc:
+        raise _skill_error(exc)
+    out = await asyncio.to_thread(skills.build_bundle, skill_dir)
+    return FileResponse(out, media_type="application/gzip", filename="skill.tar.gz",
+                        background=BackgroundTask(os.unlink, out))
 
 # Public shell; every data call from the page still needs a Bearer token.
 @app.get("/favicon.ico", include_in_schema=False)

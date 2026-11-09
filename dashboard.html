@@ -241,6 +241,17 @@ main { grid-area: main; min-width: 0; max-width: 76rem; padding: var(--sp-6) var
 .controls .search input { width: 100%; font: 400 1rem/1.2 var(--font-serif); }
 .controls select { flex: 0 1 auto; min-width: 0; }
 .count { min-height: 1.4em; font: var(--t-xs) var(--font-mono); color: var(--ink-3); }
+.sources { margin-bottom: var(--sp-5); padding: var(--sp-4); background: var(--card); border: 1px solid var(--rule); border-radius: 2px; }
+.sources-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.sources-head h3 { margin: 0; font: 600 var(--t-lg)/1.2 var(--font-serif); }
+.sources-head p { flex: 1 1 18rem; font: var(--t-xs)/1.45 var(--font-mono); color: var(--ink-3); }
+#srcUrl { width: 100%; min-height: 42px; padding: 0 12px; font: 400 var(--t-sm)/1.2 var(--font-mono); color: var(--ink); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 2px; }
+.src-list { list-style: none; margin: 0; padding: 0; }
+.src-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); padding: var(--sp-2) 0; border-top: 1px solid var(--rule); }
+.src-list strong { font: 600 var(--t-sm)/1.3 var(--font-mono); overflow-wrap: anywhere; }
+.src-list small { flex: 1 1 12rem; font: var(--t-xs)/1.45 var(--font-mono); color: var(--ink-3); }
+.src-list .acts { display: flex; gap: var(--sp-1); }
+#srcStatus[data-state="err"] { color: var(--stamp); }
 .lane-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: var(--sp-6) 0 var(--sp-3); padding-bottom: var(--sp-2); border-bottom: 2px solid var(--ink); }
 .lane-head:first-child { margin-top: var(--sp-4); }
 .lane-head h3 { margin: 0; font: 600 var(--t-lg)/1.2 var(--font-serif); overflow-wrap: anywhere; min-width: 0; }
@@ -652,6 +663,19 @@ pre.json { margin: var(--sp-3) 0 0; padding: var(--sp-3); max-width: 100%; white
         <h2>Skills</h2>
         <p class="lede">The archived skill catalogue. Each card is a skill kept out of the session start and recalled on demand. The left edge runs warm the more often a skill is recalled.</p>
       </header>
+      <section class="sources" aria-labelledby="srcTitle">
+        <div class="sources-head">
+          <h3 id="srcTitle">Sources</h3>
+          <p>GitHub repos cloned on the server. Every SKILL.md inside becomes a card below. Update pulls the latest commit and re-indexes what changed.</p>
+          <button class="btn small" type="button" id="srcUpdateAll">Update all</button>
+        </div>
+        <form class="controls" id="srcForm">
+          <label class="search"><span class="sr">GitHub repo URL</span><input id="srcUrl" type="text" inputmode="url" placeholder="https://github.com/owner/repo" autocomplete="off" spellcheck="false" required></label>
+          <button class="btn" type="submit" id="srcAdd">Add repo</button>
+        </form>
+        <p class="count" id="srcStatus" aria-live="polite"></p>
+        <ul class="src-list" id="srcList"></ul>
+      </section>
       <div class="controls">
         <label class="search"><span class="sr">Search skills</span><input id="sq" type="search" placeholder="Search skills by name or description…" autocomplete="off"></label>
         <div class="seg" role="group" aria-label="Usage" id="skillSeg">
@@ -774,6 +798,21 @@ async function api(path) {
   return r.json();
 }
 
+async function apiSend(method, path, body) {
+  let r;
+  try {
+    r = await fetch(path, {
+      method, cache: "no-store",
+      headers: { Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch { throw new Error("the server is unreachable"); }
+  if (r.status === 401 || r.status === 403) throw new AuthError("auth");
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : `HTTP ${r.status}`);
+  return data;
+}
+
 async function fetchCorpus() {
   const items = [];
   let total = Infinity;
@@ -826,9 +865,9 @@ const LOADERS = {
     return (first) => renderRecall(u, corpus, first);
   },
   async skills() {
-    const corpus = await fetchCorpus();
+    const [corpus, src] = await Promise.all([fetchCorpus(), api("/api/v1/skills/sources")]);
     S.corpus = corpus;
-    return () => renderSkills(corpus);
+    return () => { renderSources(src.sources || []); renderSkills(corpus); };
   },
   async log() {
     const p = new URLSearchParams({ limit: EV_PAGE, offset: S.ev.offset });
@@ -1042,7 +1081,7 @@ function skillCard(it, p, maxHits) {
     h("p", { class: "card-text" }, h("strong", null, p.name), p.desc ? " — " + p.desc : ""),
     h("div", { class: "card-meta" },
       h("button", { class: "card-open", type: "button", "data-k": "s-" + it.id, "aria-label": `Open memory #${it.id}`, onclick: (e) => openMemory(it.id, e.currentTarget) }, "#" + it.id),
-      p.path ? h("span", null, p.path.replace(/^~\/\.claude\/backup-2026\/skills-archive\//, "")) : null,
+      p.path ? h("span", null, p.path.replace(/^~\/(\.claude\/backup-2026\/skills-archive|\.cache\/memory-core\/skills)\//, "")) : null,
       h("span", { class: "heat" }, hits ? `recalled ${hits}×` : "never recalled")));
   art.style.setProperty("--heat", heatPct(hits, maxHits));
   return art;
@@ -1083,6 +1122,75 @@ function renderSkills(corpus) {
     b.setAttribute("aria-pressed", String(b.dataset.use === skillUse.v));
     b.onclick = () => { skillUse.v = b.dataset.use; renderSkills(corpus); };
   }
+}
+
+/* ---------- skill sources ---------- */
+
+const srcState = { busy: false };
+const repoName = (slug) => slug.replace("__", "/");
+
+function srcStatus(text, state) {
+  $("srcStatus").textContent = text;
+  $("srcStatus").dataset.state = state || "";
+}
+
+function summarizeSync(r) {
+  const parts = [["added", r.added], ["updated", r.updated], ["replaced", r.replaced], ["removed", r.removed]]
+    .filter(([, list]) => list && list.length).map(([k, list]) => `${list.length} ${k}`);
+  const commit = (r.commit || "").slice(0, 7);
+  const moved = r.previous_commit && r.previous_commit !== r.commit ? ` (${r.previous_commit.slice(0, 7)} → ${commit})` : ` (${commit})`;
+  return `${repoName(r.slug)}: ${parts.length ? parts.join(", ") : "already up to date"}${moved}`;
+}
+
+async function runSourceOp(label, ops) {
+  if (srcState.busy) return;
+  srcState.busy = true;
+  setSourceButtons(true);
+  const done = [];
+  try {
+    for (const [name, op] of ops) {
+      srcStatus(`${label} ${name}…`);
+      done.push(await op());
+    }
+    srcStatus(done.join(" · "));
+    if (ops.length) { S.corpus = null; }
+  } catch (e) {
+    if (e instanceof AuthError) { lock("Token rejected."); return; }
+    srcStatus([...done, `Failed: ${e.message}`].join(" · "), "err");
+  } finally {
+    srcState.busy = false;
+    setSourceButtons(false);
+    load();
+  }
+}
+
+function setSourceButtons(disabled) {
+  for (const b of $("v-skills").querySelectorAll(".sources button")) b.disabled = disabled;
+}
+
+function renderSources(list) {
+  $("srcList").replaceChildren(...(list.length ? list.map((s) => h("li", null,
+    h("strong", null, h("a", { href: s.url.replace(/\.git$/, ""), target: "_blank", rel: "noopener noreferrer" }, repoName(s.slug))),
+    h("small", null, `${s.skills} skills · ${(s.commit_sha || "").slice(0, 7)} · updated `, timeEl(s.updated_at)),
+    h("span", { class: "acts" },
+      h("button", { class: "btn small", type: "button", disabled: srcState.busy,
+        onclick: () => runSourceOp("Updating", [[repoName(s.slug), async () => summarizeSync(await apiSend("POST", `/api/v1/skills/sources/${encodeURIComponent(s.slug)}/update`))]]) }, "Update"),
+      h("button", { class: "btn small", type: "button", disabled: srcState.busy,
+        onclick: () => {
+          if (!confirm(`Remove ${repoName(s.slug)} and retire its ${s.skills} skills?`)) return;
+          runSourceOp("Removing", [[repoName(s.slug), async () => { const r = await apiSend("DELETE", `/api/v1/skills/sources/${encodeURIComponent(s.slug)}`); return `${repoName(r.slug)}: removed, ${r.retired} skills retired`; }]]);
+        } }, "Remove"))))
+    : [h("li", null, h("small", null, "No repos yet. Paste a GitHub URL above to add one."))]));
+
+  $("srcUpdateAll").disabled = srcState.busy || !list.length;
+  $("srcUpdateAll").onclick = () => runSourceOp("Updating", list.map((s) =>
+    [repoName(s.slug), async () => summarizeSync(await apiSend("POST", `/api/v1/skills/sources/${encodeURIComponent(s.slug)}/update`))]));
+  $("srcForm").onsubmit = (e) => {
+    e.preventDefault();
+    const url = $("srcUrl").value.trim();
+    if (!url) return;
+    runSourceOp("Cloning", [[url, async () => { const r = await apiSend("POST", "/api/v1/skills/sources", { url }); $("srcUrl").value = ""; return summarizeSync(r); }]]);
+  };
 }
 
 /* ---------- chronicle ---------- */
