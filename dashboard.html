@@ -208,7 +208,7 @@ main { grid-area: main; min-width: 0; max-width: 76rem; padding: var(--sp-6) var
 /* Topology */
 .hero-side { display: grid; gap: var(--sp-5); min-width: 0; }
 .ledger-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); gap: var(--sp-5); align-items: start; margin-bottom: var(--sp-5); }
-.live-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--stamp); box-shadow: 0 0 0 0 var(--stamp-rule); animation: beacon 1.6s var(--ease-out) infinite; }
+.live-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--stamp); }
 .topo {
   position: relative; height: clamp(340px, 48vh, 540px); margin: 0 calc(-1 * var(--sp-5)); overflow: hidden;
   border-block: 1px solid var(--rule);
@@ -241,7 +241,6 @@ main { grid-area: main; min-width: 0; max-width: 76rem; padding: var(--sp-6) var
 .topo-legend .btn::before { content: ""; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; background: var(--sw); }
 .topo-legend .btn[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
 .topo-legend .btn[aria-pressed="true"] { background: var(--card); color: var(--ink); border-color: var(--rule-strong); }
-@keyframes beacon { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 
 .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .bars li { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr) auto; gap: 10px; align-items: center; font: var(--t-sm)/1.2 var(--font-mono); }
