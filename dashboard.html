@@ -25,6 +25,8 @@
   --stamp-rule: oklch(51% 0.175 29 / 0.5);
   --ochre: oklch(52% 0.11 70);
   --sea: oklch(46% 0.08 232);
+  --moss: oklch(50% 0.1 150);
+  --plum: oklch(48% 0.12 320);
   --cold: oklch(78% 0.03 245);
   --hot: var(--stamp);
   --focus: oklch(48% 0.17 258);
@@ -62,6 +64,8 @@
     --stamp-rule: oklch(70% 0.155 36 / 0.45);
     --ochre: oklch(80% 0.12 80);
     --sea: oklch(77% 0.07 230);
+    --moss: oklch(76% 0.11 150);
+    --plum: oklch(74% 0.11 320);
     --cold: oklch(46% 0.04 245);
     --focus: oklch(80% 0.12 230);
     --scrim: oklch(8% 0.02 258 / 0.6);
@@ -200,6 +204,44 @@ main { grid-area: main; min-width: 0; max-width: 76rem; padding: var(--sp-6) var
 .key { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: var(--sp-3); font: var(--t-xs)/1.4 var(--font-mono); color: var(--ink-2); }
 .key span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; background: var(--sw); }
 .reveal .wipe { animation: wipe var(--dur-3) var(--ease-out) both; }
+
+/* Topology */
+.hero-side { display: grid; gap: var(--sp-5); min-width: 0; }
+.ledger-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); gap: var(--sp-5); align-items: start; margin-bottom: var(--sp-5); }
+.live-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--stamp); box-shadow: 0 0 0 0 var(--stamp-rule); animation: beacon 1.6s var(--ease-out) infinite; }
+.topo {
+  position: relative; height: clamp(340px, 48vh, 540px); margin: 0 calc(-1 * var(--sp-5)); overflow: hidden;
+  border-block: 1px solid var(--rule);
+  background: radial-gradient(ellipse 70% 65% at 50% 48%, color-mix(in oklch, var(--paper-sunk) 82%, var(--stamp) 7%), var(--paper-sunk) 75%);
+}
+.topo canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.topo canvas.is-panning { cursor: grabbing; }
+.topo canvas.is-pointing { cursor: pointer; }
+.topo canvas:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.topo-tools { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
+.topo-tools .btn { background: color-mix(in oklch, var(--card) 85%, transparent); }
+.topo-hud {
+  position: absolute; left: 14px; bottom: 10px; margin: 0; display: grid; grid-template-columns: auto auto; gap: 0 12px; pointer-events: none;
+  font: var(--t-xs)/1.55 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3);
+}
+.topo-hud dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.topo-feed {
+  position: absolute; right: 14px; bottom: 10px; max-width: 48%; margin: 0; padding: 0; list-style: none; pointer-events: none;
+  display: grid; gap: 2px; text-align: right; font: var(--t-xs)/1.45 var(--font-mono); color: var(--ink-2);
+}
+.topo-feed li { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.topo-feed b { color: var(--sw); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.topo-tip {
+  position: absolute; z-index: 2; max-width: min(320px, 70%); padding: 8px 10px; pointer-events: none;
+  background: var(--card); border: 1px solid var(--rule-strong); box-shadow: var(--shadow-lg);
+  font: var(--t-xs)/1.45 var(--font-mono); color: var(--ink-2);
+}
+.topo-tip strong { display: block; margin-bottom: 2px; color: var(--ink); font-weight: 600; }
+.topo-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-3); }
+.topo-legend .btn::before { content: ""; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; background: var(--sw); }
+.topo-legend .btn[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
+.topo-legend .btn[aria-pressed="true"] { background: var(--card); color: var(--ink); border-color: var(--rule-strong); }
+@keyframes beacon { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 
 .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .bars li { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr) auto; gap: 10px; align-items: center; font: var(--t-sm)/1.2 var(--font-mono); }
@@ -457,7 +499,9 @@ pre.json { margin: var(--sp-3) 0 0; padding: var(--sp-3); max-width: 100%; white
   .tab[aria-selected="true"] { border-bottom-color: var(--stamp); background: none; box-shadow: none; }
   .tab kbd, .colophon { display: none; }
   main { padding: var(--sp-5) var(--sp-4) var(--sp-8); }
-  .ledger-grid, .recall-grid { grid-template-columns: minmax(0, 1fr); }
+  .ledger-grid, .recall-grid, .ledger-hero { grid-template-columns: minmax(0, 1fr); }
+  .topo { margin: 0 calc(-1 * var(--sp-4)); height: 380px; }
+  .topo-feed { display: none; }
   .sheet { padding: var(--sp-4) var(--sp-4) var(--sp-5); }
   .sheet > h3 { margin: 0 calc(-1 * var(--sp-4)) var(--sp-4); padding: 0 var(--sp-4) var(--sp-2); }
   .chron { --label: minmax(0, 1fr); }
@@ -548,7 +592,8 @@ pre.json { margin: var(--sp-3) 0 0; padding: var(--sp-3); max-width: 100%; white
       <h2 class="sr">Ledger</h2>
       <p class="abstract slot" id="abstract"></p>
       <dl class="figures slot" id="figures"></dl>
-      <div class="ledger-grid">
+      <div class="ledger-hero">
+        <div class="hero-side">
         <article class="sheet traffic">
           <h3>Traffic <small id="trafficRange"></small></h3>
           <div class="slot" id="traffic"></div>
@@ -557,6 +602,26 @@ pre.json { margin: var(--sp-3) 0 0; padding: var(--sp-3); max-width: 100%; white
           <h3>Balance <small>tokens, estimated</small></h3>
           <div class="slot" id="balance"></div>
         </article>
+        </div>
+        <article class="sheet topo-sheet">
+          <h3>Core topology <small><i class="live-dot" aria-hidden="true"></i>live · pulses on recall</small></h3>
+          <div class="topo" id="topo">
+            <canvas id="topoCv" tabindex="0" role="img" aria-label="Memory topology"></canvas>
+            <div class="topo-tools">
+              <button class="btn small" type="button" id="topoOrbit" aria-pressed="false" title="Slowly rotate the map">Orbit</button>
+              <button class="btn small" type="button" id="topoOut" aria-label="Zoom out">−</button>
+              <button class="btn small" type="button" id="topoIn" aria-label="Zoom in">+</button>
+              <button class="btn small" type="button" id="topoReset">Reset</button>
+            </div>
+            <dl class="topo-hud" id="topoStats"></dl>
+            <ol class="topo-feed" id="topoFeed"></ol>
+            <div class="topo-tip" id="topoTip" hidden></div>
+          </div>
+          <div class="topo-legend" id="topoLegend" aria-label="Show or hide scopes"></div>
+          <p class="fine">Drag to pan, drag a dot to move it, pinch or ⌘-scroll to zoom. Click a scope or agent to isolate it, click a memory to open it.</p>
+        </article>
+      </div>
+      <div class="ledger-grid">
         <article class="sheet">
           <h3>Who asks <small>events per agent</small></h3>
           <div class="slot" id="agents"></div>
@@ -717,7 +782,7 @@ const SVGNS = "http://www.w3.org/2000/svg";
 const VIEWS = ["ledger", "stacks", "chronicle", "recall", "log", "skills"];
 const TITLES = { ledger: "Ledger", stacks: "Stacks", chronicle: "Chronicle", recall: "Recall", log: "Log", skills: "Skills" };
 const TYPES = { recall: "recall", search_docs: "docs", remember: "remember", forget: "forget" };
-const PAGE = 30, EV_PAGE = 40, AUTO_MS = 15000, CORPUS_CAP = 2000, ALIKE_MIN = 0.6, ALIKE_MAX_ITEMS = 600;
+const PAGE = 30, EV_PAGE = 40, LATEST_N = 6, AUTO_MS = 15000, CORPUS_CAP = 2000, ALIKE_MIN = 0.6, ALIKE_MAX_ITEMS = 600;
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -844,8 +909,11 @@ function emptyP(text) { return h("p", { class: "empty" }, text); }
 
 const LOADERS = {
   async ledger() {
-    const [u, st, ev] = await Promise.all([api(`/api/v1/usage?days=${S.days}`), api("/api/v1/stats"), api("/api/v1/events?limit=6")]);
-    return (first) => renderLedger(u, st, ev, first);
+    const [u, st, ev] = await Promise.all([api(`/api/v1/usage?days=${S.days}`), api("/api/v1/stats"), api(`/api/v1/events?limit=${TOPO.EVENTS}`)]);
+    const key = `${st.active}/${st.retired}`;
+    if (!S.corpus || S.corpusKey !== key) { S.corpus = await fetchCorpus(); S.corpusKey = key; }
+    const corpus = S.corpus;
+    return (first) => { renderLedger(u, st, ev, first); renderTopo(corpus, ev.items || [], st); };
   },
   async stacks() {
     const p = new URLSearchParams({ state: S.mem.st, limit: PAGE, offset: S.mem.offset });
@@ -936,7 +1004,7 @@ function renderLedger(u, st, ev, first) {
   renderBalance(u);
   barList($("agents"), u.by_agent, "No agent activity in this range.");
   barList($("scopes"), u.by_scope, "No recalls in this range.");
-  renderLatest(ev.items || []);
+  renderLatest((ev.items || []).slice(0, LATEST_N));
 }
 
 function renderTraffic(days, span) {
@@ -1008,6 +1076,429 @@ function renderLatest(items) {
   if (!items.length) { box.replaceChildren(emptyP("Nothing logged yet. Entries appear when an agent recalls, remembers or forgets.")); return; }
   box.replaceChildren(h("ol", { class: "latest" }, items.map((e) =>
     h("li", null, stamp(typeKey(e.type), TYPES[e.type] || e.type), h("span", { class: "sum" }, summary(e)), timeEl(e.ts)))));
+}
+
+/* ---------- topology ---------- */
+
+// The map shows the busiest memories, every scope, and the agents that touched them in recent events.
+const TOPO = {
+  EVENTS: 60, MAX_NODES: 200, TRACES: 36, PER_EVENT: 4, GROUP_MIN: 3, GROUPS: 12,
+  BURST_MS: 1800, FIT_PAD: 40, FIT_SIDE: 70, FIT_HUD: 96, FIT_EASE: 0.08, FRESH_MS: 10 * 60e3, ORBIT_RAD_PER_MS: 0.00004, MIN_K: 0.15, MAX_K: 4, ZOOM_STEP: 1.25,
+  REPULSE: 26, REPULSE_RANGE2: 160 ** 2, NEAR2: 64, GRAVITY: 0.03, DAMPING: 0.58, MAX_V: 5, ALPHA_DECAY: 0.985, ALPHA_MIN: 0.003, CLICK_PX: 4,
+};
+const TOPO_TINT = { recall: "--stamp", search_docs: "--sea", remember: "--ochre", forget: "--ink-3" };
+const SCOPE_TINTS = ["--stamp", "--ochre", "--sea", "--moss", "--plum", "--ink-3"];
+const LINK = { core: [110, 0.3], group: [62, 0.3], member: [24, 0.35], trace: [150, 0.004], idle: [230, 0.01] };
+const CHARGE = { core: 6, scope: 40, group: 3, mem: 1, agent: 10 };
+
+const topo = {
+  cv: null, ctx: null, w: 0, h: 0, dpr: 1, raf: 0, last: 0,
+  nodes: [], links: [], deg: new Map(), traces: [], bursts: [], byId: new Map(), adj: new Map(),
+  view: { x: 0, y: 0, k: 1 }, fit: true, ang: 0, orbit: false, alpha: 1,
+  hover: null, focus: null, lit: null, ptr: null, hidden: new Set(), tint: new Map(),
+  lastEv: 0, colors: {}, still: false, data: null,
+};
+
+function topoColors() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const v of [...SCOPE_TINTS, "--ink", "--ink-2", "--rule-strong", "--card", "--paper-sunk"]) topo.colors[v] = cs.getPropertyValue(v).trim() || "#888";
+}
+const tcol = (v) => topo.colors[v] || "#888";
+const scopeCol = (scope) => tcol(topo.tint.get(scope) || "--ink-3");
+const skillFamily = (it) => parseSkill(it).name.split("-")[0].toLowerCase();
+
+function pickMemories(active, hot) {
+  const key = new Map(active.map((m) => [m, [hot.has(m.id) ? 1 : 0, m.kind === "skill" ? 0 : 1, m.hits || 0, toMs(m.valid_from) || 0]]));
+  const cmp = (a, b) => { const x = key.get(a), y = key.get(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return y[i] - x[i]; return 0; };
+  return [...active].sort(cmp).slice(0, TOPO.MAX_NODES);
+}
+
+// Skill families with enough members on the map get their own hub; the rest hang off the scope.
+function skillGroups(picked) {
+  const n = new Map();
+  for (const m of picked) if (m.kind === "skill") { const k = m.scope + "/" + skillFamily(m); n.set(k, (n.get(k) || 0) + 1); }
+  return new Set([...n.entries()].filter(([, c]) => c >= TOPO.GROUP_MIN).sort((a, b) => b[1] - a[1]).slice(0, TOPO.GROUPS).map(([k]) => k));
+}
+
+function topoNode(id, near, props) {
+  const old = topo.byId.get(id);
+  if (old) return Object.assign(old, props, { id });
+  const a = Math.random() * Math.PI * 2, d = near ? 18 + Math.random() * 30 : 80 + Math.random() * 120;
+  return { id, x: (near ? near.x : 0) + Math.cos(a) * d, y: (near ? near.y : 0) + Math.sin(a) * d, vx: 0, vy: 0, phase: Math.random() * 6.28, ...props };
+}
+
+function buildTopo(corpus, events, st) {
+  const byScope = st.by_scope || {};
+  const scopes = Object.keys(byScope).sort((a, b) => byScope[b] - byScope[a]);
+  topo.tint = new Map(scopes.map((s, i) => [s, SCOPE_TINTS[Math.min(i, SCOPE_TINTS.length - 1)]]));
+  const shown = (s) => !topo.hidden.has(s);
+  const active = corpus.items.filter((m) => !m.valid_to && shown(m.scope));
+  const picked = pickMemories(active, new Set(events.flatMap((e) => e.result_ids || [])));
+  const groups = skillGroups(picked);
+  const nodes = [], links = [], byId = new Map();
+  const add = (n) => { nodes.push(n); byId.set(n.id, n); return n; };
+  const link = (a, b, kind) => links.push({ a, b, len: LINK[kind][0], s: LINK[kind][1], kind });
+
+  const core = add(topoNode("core", null, { kind: "core", r: 5, label: "core" }));
+  core.x = 0; core.y = 0; core.pinned = true;
+  for (const s of scopes.filter(shown)) {
+    link(core, add(topoNode("s:" + s, null, { kind: "scope", scope: s, label: s, count: byScope[s], r: Math.min(15, 6 + Math.sqrt(byScope[s]) * 0.3) })), "core");
+  }
+  for (const g of groups) {
+    const [scope, fam] = [g.slice(0, g.lastIndexOf("/")), g.slice(g.lastIndexOf("/") + 1)];
+    const hub = byId.get("s:" + scope);
+    if (hub) link(hub, add(topoNode("g:" + g, hub, { kind: "group", scope, label: fam, r: 4 })), "group");
+  }
+  for (const m of picked) {
+    const g = m.kind === "skill" ? byId.get("g:" + m.scope + "/" + skillFamily(m)) : null;
+    const parent = g || byId.get("s:" + m.scope) || core;
+    const label = m.kind === "skill" ? parseSkill(m).name : clip(m.content, 90);
+    link(parent, add(topoNode("m:" + m.id, parent, { kind: "mem", mid: m.id, scope: m.scope, label, hits: m.hits || 0, r: Math.min(8, 2.6 + Math.sqrt(m.hits || 0) * 1.1) })), "member");
+  }
+  addTraces(events, add, link, byId, core);
+  topo.nodes = nodes; topo.links = links; topo.byId = byId;
+  topo.adj = new Map(nodes.map((n) => [n, new Set([n])]));
+  topo.deg = new Map(nodes.map((n) => [n, 0]));
+  for (const l of links) { topo.adj.get(l.a).add(l.b); topo.adj.get(l.b).add(l.a); topo.deg.set(l.a, topo.deg.get(l.a) + 1); topo.deg.set(l.b, topo.deg.get(l.b) + 1); }
+  return picked.length;
+}
+
+function addTraces(events, add, link, byId, core) {
+  topo.traces = [];
+  const seen = new Set();
+  for (const e of events.slice(0, TOPO.TRACES)) {
+    if (!e.agent) continue;
+    const agent = byId.get("a:" + e.agent) || add(topoNode("a:" + e.agent, null, { kind: "agent", label: e.agent, r: 6 }));
+    const targets = (e.result_ids || []).slice(0, TOPO.PER_EVENT).map((id) => byId.get("m:" + id)).filter(Boolean);
+    if (!targets.length && byId.get("s:" + e.scope)) targets.push(byId.get("s:" + e.scope));
+    for (const t of targets) {
+      topo.traces.push({ a: agent, b: t, type: typeKey(e.type), ts: toMs(e.ts), phase: Math.random() });
+      const k = agent.id + ">" + t.id;
+      if (!seen.has(k)) { seen.add(k); link(agent, t, "trace"); }
+    }
+  }
+  for (const n of byId.values()) if (n.kind === "agent" && !topo.traces.some((t) => t.a === n)) link(core, n, "idle");
+}
+
+function queueBursts(events) {
+  const now = Date.now(), newest = events.reduce((m, e) => Math.max(m, e.id || 0), 0);
+  const fresh = events.filter((e) => (topo.lastEv ? e.id > topo.lastEv : now - toMs(e.ts) < TOPO.FRESH_MS));
+  for (const e of fresh.slice(0, TOPO.TRACES)) {
+    for (const t of topo.traces) if (t.ts === toMs(e.ts)) topo.bursts.push({ n: t.b, t0: performance.now(), type: t.type });
+    const a = topo.byId.get("a:" + e.agent);
+    if (a) topo.bursts.push({ n: a, t0: performance.now(), type: typeKey(e.type) });
+  }
+  topo.lastEv = Math.max(topo.lastEv, newest);
+}
+
+function renderTopo(corpus, events, st) {
+  if (!topo.ctx) return;
+  topo.data = { corpus, events, st };
+  const before = topo.nodes.length;
+  const shownMems = buildTopo(corpus, events, st);
+  if (topo.nodes.length !== before) topo.alpha = Math.max(topo.alpha, 0.8);
+  queueBursts(events);
+  if (topo.focus && !topo.byId.has(topo.focus.id)) topo.focus = null;
+  else if (topo.focus) topo.focus = topo.byId.get(topo.focus.id);
+  topoLight();
+  topoChrome(corpus, events, st, shownMems);
+  topoStart();
+}
+
+function topoChrome(corpus, events, st, shownMems) {
+  const held = corpus.items.filter((m) => !m.valid_to).length;
+  const recalls = topo.traces.filter((t) => t.type === "recall").length;
+  const agents = topo.nodes.filter((n) => n.kind === "agent").length;
+  const stat = (k, v) => [h("dt", null, k), h("dd", null, v)];
+  put($("topoStats"), stat("On map", `${fmtN(shownMems)} of ${fmtN(held)}`), stat("Live paths", fmtN(topo.traces.length)), stat("Recall tracers", fmtN(recalls)), stat("Agents", fmtN(agents)));
+  put($("topoFeed"), events.slice(0, 4).map((e) => {
+    const b = h("b", null, (TYPES[e.type] || e.type) + ":");
+    b.style.setProperty("--sw", `var(${TOPO_TINT[e.type] || "--ink-3"})`);
+    return h("li", { title: summary(e) }, b, " " + clip((e.scope ? e.scope + " · " : "") + summary(e), 60));
+  }));
+  const byScope = st.by_scope || {};
+  put($("topoLegend"), Object.keys(byScope).sort((a, b) => byScope[b] - byScope[a]).map((s) => {
+    const b = h("button", { class: "btn small", type: "button", "aria-pressed": String(!topo.hidden.has(s)), onclick: () => topoToggleScope(s) }, `${s} · ${fmtN(byScope[s])}`);
+    b.style.setProperty("--sw", `var(${topo.tint.get(s) || "--ink-3"})`);
+    return b;
+  }));
+  topo.cv.setAttribute("aria-label", `Memory topology: ${shownMems} of ${held} held memories across ${Object.keys(byScope).length} scopes, ${topo.traces.length} recent paths from ${agents} agents.`);
+}
+
+function topoToggleScope(s) {
+  if (topo.hidden.has(s)) topo.hidden.delete(s); else topo.hidden.add(s);
+  if (topo.data) renderTopo(topo.data.corpus, topo.data.events, topo.data.st);
+  topo.alpha = 1;
+}
+
+// Lit nodes stay bright; everything else dims. Focus (click) wins over hover.
+function topoLight() {
+  const f = topo.focus, hv = topo.hover;
+  if (f && f.kind === "scope") topo.lit = new Set(topo.nodes.filter((n) => n.scope === f.scope || n === f));
+  else if (f && f.kind === "agent") topo.lit = new Set([f, ...topo.traces.filter((t) => t.a === f).map((t) => t.b)]);
+  else if (f || hv) topo.lit = topo.adj.get(f || hv) || null;
+  else topo.lit = null;
+}
+
+/* topology · physics */
+
+function topoTick() {
+  const N = topo.nodes, a = topo.alpha;
+  if (a < TOPO.ALPHA_MIN) return;
+  for (let i = 0; i < N.length; i++) {
+    const p = N[i];
+    for (let j = i + 1; j < N.length; j++) {
+      const q = N[j], dx = q.x - p.x, dy = q.y - p.y, d2 = Math.max(dx * dx + dy * dy, TOPO.NEAR2);
+      if (d2 > TOPO.REPULSE_RANGE2) continue;
+      const f = (TOPO.REPULSE * a * (CHARGE[p.kind] + CHARGE[q.kind])) / d2;
+      p.vx -= dx * f; p.vy -= dy * f; q.vx += dx * f; q.vy += dy * f;
+    }
+  }
+  // Springs split their pull by degree, so a hub with hundreds of members moves little and never overshoots.
+  for (const l of topo.links) {
+    const da = topo.deg.get(l.a), db = topo.deg.get(l.b), bias = l.a.pinned ? 1 : da / (da + db);
+    const dx = l.b.x - l.a.x, dy = l.b.y - l.a.y, d = Math.hypot(dx, dy) || 0.01, k = ((d - l.len) / d) * l.s * a;
+    l.a.vx += dx * k * (1 - bias); l.a.vy += dy * k * (1 - bias); l.b.vx -= dx * k * bias; l.b.vy -= dy * k * bias;
+  }
+  const held = topo.ptr && topo.ptr.node;
+  for (const n of N) {
+    if (n.pinned || n === held) { n.vx = n.vy = 0; continue; }
+    n.vx = (n.vx - n.x * TOPO.GRAVITY * a) * TOPO.DAMPING;
+    n.vy = (n.vy - n.y * TOPO.GRAVITY * a) * TOPO.DAMPING;
+    const v = Math.hypot(n.vx, n.vy);
+    if (v > TOPO.MAX_V) { n.vx *= TOPO.MAX_V / v; n.vy *= TOPO.MAX_V / v; }
+    n.x += n.vx; n.y += n.vy;
+  }
+  topo.alpha *= TOPO.ALPHA_DECAY;
+}
+
+/* topology · drawing */
+
+function topoDraw(now) {
+  const { ctx, w, h, dpr, view } = topo;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.translate(w / 2 + view.x, h / 2 + view.y);
+  ctx.scale(view.k, view.k);
+  ctx.rotate(topo.ang);
+  const dim = (n) => (topo.lit && !topo.lit.has(n) ? 0.12 : 1);
+  ctx.lineWidth = 0.7 / view.k;
+  ctx.strokeStyle = tcol("--rule-strong");
+  for (const l of topo.links) {
+    if (l.kind === "trace" || l.kind === "idle") continue;
+    ctx.globalAlpha = 0.45 * Math.min(dim(l.a), dim(l.b));
+    ctx.beginPath(); ctx.moveTo(l.a.x, l.a.y); ctx.lineTo(l.b.x, l.b.y); ctx.stroke();
+  }
+  drawTraces(now, dim);
+  const hot = new Set(topo.traces.map((t) => t.b));
+  for (const n of topo.nodes) drawNode(n, now, dim(n), hot.has(n));
+  drawBursts(now);
+  drawLabels(dim);
+  ctx.globalAlpha = 1;
+}
+
+function drawTraces(now, dim) {
+  const { ctx, traces } = topo, k = topo.view.k;
+  traces.forEach((t, i) => {
+    const fade = 0.85 - (0.65 * i) / Math.max(1, traces.length), c = tcol(TOPO_TINT[t.type] || "--ink-3");
+    const a = Math.min(dim(t.a), dim(t.b));
+    ctx.globalAlpha = fade * 0.55 * a;
+    ctx.strokeStyle = c; ctx.lineWidth = 1.1 / k;
+    ctx.beginPath(); ctx.moveTo(t.a.x, t.a.y); ctx.lineTo(t.b.x, t.b.y); ctx.stroke();
+    const p = topo.still ? 0.5 : (now / 1800 + t.phase) % 1;
+    ctx.globalAlpha = fade * a;
+    ctx.fillStyle = c;
+    ctx.beginPath(); ctx.arc(t.a.x + (t.b.x - t.a.x) * p, t.a.y + (t.b.y - t.a.y) * p, 2.2 / Math.sqrt(k), 0, 6.283); ctx.fill();
+  });
+}
+
+function glow(x, y, r, color, alpha) {
+  const { ctx } = topo, g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, color); g.addColorStop(1, "transparent");
+  ctx.globalAlpha = alpha; ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+}
+
+function drawNode(n, now, a, hot) {
+  const { ctx } = topo, r = n.r / Math.min(1, Math.sqrt(topo.view.k)), beat = topo.still ? 0.5 : 0.5 + 0.5 * Math.sin(now / 420 + n.phase);
+  const c = n.kind === "agent" ? tcol("--stamp") : n.kind === "core" ? tcol("--ink") : scopeCol(n.scope);
+  if (n.kind === "agent") glow(n.x, n.y, (26 + 6 * beat) / Math.min(1, Math.sqrt(topo.view.k)), c, 0.55 * a);
+  if (n.kind === "scope") glow(n.x, n.y, r * 3, c, 0.28 * a);
+  if (hot && n.kind === "mem") glow(n.x, n.y, r * 3.2, c, (0.35 + 0.3 * beat) * a);
+  ctx.globalAlpha = a;
+  ctx.fillStyle = n.kind === "group" || n.kind === "core" ? tcol("--paper-sunk") : c;
+  ctx.strokeStyle = c; ctx.lineWidth = (n.kind === "mem" ? 0 : 1.6) / Math.sqrt(topo.view.k);
+  ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 6.283); ctx.fill();
+  if (n.kind !== "mem") ctx.stroke();
+  if (n.kind === "agent" || n.kind === "core") { ctx.fillStyle = tcol("--ink"); ctx.beginPath(); ctx.arc(n.x, n.y, r * 0.45, 0, 6.283); ctx.fill(); }
+  if (n === topo.hover || n === topo.focus) { ctx.globalAlpha = 1; ctx.strokeStyle = tcol("--ink"); ctx.lineWidth = 1.5 / topo.view.k; ctx.beginPath(); ctx.arc(n.x, n.y, r + 3 / topo.view.k, 0, 6.283); ctx.stroke(); }
+}
+
+function drawBursts(now) {
+  const { ctx } = topo;
+  topo.bursts = topo.bursts.filter((b) => now - b.t0 < TOPO.BURST_MS && topo.byId.has(b.n.id));
+  for (const b of topo.bursts) {
+    const p = (now - b.t0) / TOPO.BURST_MS;
+    ctx.globalAlpha = 1 - p; ctx.strokeStyle = tcol(TOPO_TINT[b.type] || "--stamp"); ctx.lineWidth = 2 / topo.view.k;
+    ctx.beginPath(); ctx.arc(b.n.x, b.n.y, b.n.r + 4 + 34 * p, 0, 6.283); ctx.stroke();
+  }
+}
+
+// Labels stay upright while the map orbits.
+function drawLabels(dim) {
+  const { ctx } = topo, k = topo.view.k;
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const n of topo.nodes) {
+    const always = n.kind === "scope" || n.kind === "agent";
+    const show = always || n === topo.hover || n === topo.focus || (n.kind === "group" && k > 0.9) || (n.kind === "mem" && k > 2.2 && topo.lit && topo.lit.has(n));
+    if (!show || dim(n) < 1 && !always) continue;
+    ctx.save(); ctx.translate(n.x, n.y); ctx.rotate(-topo.ang); ctx.scale(1 / k, 1 / k);
+    ctx.globalAlpha = dim(n) < 1 ? 0.35 : 0.95;
+    ctx.font = `${n.kind === "scope" || n.kind === "agent" ? 600 : 400} 11px ui-monospace, "SF Mono", Menlo, monospace`;
+    ctx.fillStyle = n.kind === "agent" ? tcol("--stamp") : n.kind === "group" || n.kind === "mem" ? tcol("--ink-2") : tcol("--ink");
+    const text = n.kind === "scope" ? n.label.toUpperCase() : n.kind === "core" ? "MEMORY·CORE" : clip(n.label, 34);
+    ctx.fillText(text, 0, n.r * k + 5);
+    ctx.restore();
+  }
+}
+
+/* topology · interaction */
+
+function topoWorld(ev) {
+  const r = topo.cv.getBoundingClientRect(), v = topo.view;
+  const x = (ev.clientX - r.left - topo.w / 2 - v.x) / v.k, y = (ev.clientY - r.top - topo.h / 2 - v.y) / v.k;
+  const c = Math.cos(-topo.ang), s = Math.sin(-topo.ang);
+  return { x: x * c - y * s, y: x * s + y * c };
+}
+
+function topoHit(p) {
+  let best = null, bd = Infinity;
+  for (const n of topo.nodes) {
+    const d = Math.hypot(n.x - p.x, n.y - p.y);
+    if (d < n.r / Math.min(1, Math.sqrt(topo.view.k)) + 5 / topo.view.k && d < bd) { best = n; bd = d; }
+  }
+  return best;
+}
+
+function topoTip(n, ev) {
+  const tip = $("topoTip");
+  if (!n) { tip.hidden = true; return; }
+  const lines = {
+    mem: () => [h("strong", null, "#" + n.mid + " · " + n.scope), clip(n.label, 140), h("br"), n.hits ? `returned ${n.hits}×` : "never returned"],
+    scope: () => [h("strong", null, n.scope), `${fmtN(n.count)} held · click to isolate`],
+    group: () => [h("strong", null, n.label + "-*"), `skill family in ${n.scope}`],
+    agent: () => [h("strong", null, n.label), `${topo.traces.filter((t) => t.a === n).length} recent paths · click to isolate`],
+    core: () => [h("strong", null, "memory·core"), "the shared store every scope hangs from"],
+  }[n.kind]();
+  put(tip, lines);
+  tip.hidden = false;
+  const r = topo.cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  tip.style.left = Math.min(x + 14, topo.w - tip.offsetWidth - 8) + "px";
+  tip.style.top = Math.min(y + 14, topo.h - tip.offsetHeight - 8) + "px";
+}
+
+function topoDown(ev) {
+  topo.cv.setPointerCapture(ev.pointerId);
+  const node = topoHit(topoWorld(ev));
+  topo.ptr = { node: node && !node.pinned ? node : null, hit: node, sx: ev.clientX, sy: ev.clientY, vx: topo.view.x, vy: topo.view.y, moved: false };
+  if (!topo.ptr.node) topo.cv.classList.add("is-panning");
+}
+
+function topoMove(ev) {
+  const p = topo.ptr;
+  if (!p) {
+    const n = topoHit(topoWorld(ev));
+    if (n !== topo.hover) { topo.hover = n; topoLight(); }
+    topo.cv.classList.toggle("is-pointing", !!n);
+    topoTip(n, ev);
+    return;
+  }
+  if (Math.hypot(ev.clientX - p.sx, ev.clientY - p.sy) > TOPO.CLICK_PX) p.moved = true;
+  if (!p.moved) return;
+  $("topoTip").hidden = true;
+  if (p.node) { Object.assign(p.node, topoWorld(ev)); topo.alpha = Math.max(topo.alpha, 0.3); }
+  else { topo.fit = false; topo.view.x = p.vx + ev.clientX - p.sx; topo.view.y = p.vy + ev.clientY - p.sy; }
+}
+
+function topoUp() {
+  const p = topo.ptr;
+  topo.ptr = null;
+  topo.cv.classList.remove("is-panning");
+  if (!p || p.moved) return;
+  const n = p.hit;
+  if (n && n.kind === "mem") { openMemory(n.mid, topo.cv); return; }
+  topo.focus = n && n !== topo.focus && n.kind !== "core" ? n : null;
+  topoLight();
+}
+
+// Until the reader pans or zooms, the camera eases toward a frame that holds every node.
+function topoFit() {
+  const c = Math.cos(topo.ang), s = Math.sin(topo.ang);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of topo.nodes) {
+    const x = n.x * c - n.y * s, y = n.x * s + n.y * c;
+    x0 = Math.min(x0, x - n.r); x1 = Math.max(x1, x + n.r); y0 = Math.min(y0, y - n.r); y1 = Math.max(y1, y + n.r + 16);
+  }
+  if (!Number.isFinite(x0)) return;
+  const k = Math.min(TOPO.MAX_K, Math.max(TOPO.MIN_K, Math.min((topo.w - 2 * TOPO.FIT_SIDE) / (x1 - x0 || 1), (topo.h - TOPO.FIT_PAD - TOPO.FIT_HUD) / (y1 - y0 || 1))));
+  const v = topo.view, e = topo.still ? 1 : TOPO.FIT_EASE;
+  v.k += (k - v.k) * e;
+  v.x += (-(x0 + x1) / 2 * v.k - v.x) * e;
+  v.y += (-(y0 + y1) / 2 * v.k + (TOPO.FIT_PAD - TOPO.FIT_HUD) / 2 - v.y) * e;
+}
+
+function topoZoom(factor, cx = topo.w / 2, cy = topo.h / 2) {
+  topo.fit = false;
+  const v = topo.view, k = Math.min(TOPO.MAX_K, Math.max(TOPO.MIN_K, v.k * factor)), f = k / v.k;
+  const ox = cx - topo.w / 2, oy = cy - topo.h / 2;
+  v.x = ox - (ox - v.x) * f; v.y = oy - (oy - v.y) * f; v.k = k;
+}
+
+function topoResize() {
+  const r = topo.cv.getBoundingClientRect();
+  topo.dpr = Math.min(2, window.devicePixelRatio || 1);
+  topo.w = r.width; topo.h = r.height;
+  topo.cv.width = Math.round(r.width * topo.dpr); topo.cv.height = Math.round(r.height * topo.dpr);
+  topoStart();
+}
+
+const topoLive = () => topo.ctx && topo.w > 0 && !document.hidden && !$("app").hidden && !$("v-ledger").hidden;
+
+function topoLoop(now) {
+  if (!topoLive()) { topo.raf = 0; return; }
+  topoTick();
+  if (topo.orbit && !topo.still && topo.last) topo.ang += (now - topo.last) * TOPO.ORBIT_RAD_PER_MS;
+  topo.last = now;
+  if (topo.fit && !topo.ptr) topoFit();
+  topoDraw(now);
+  topo.raf = requestAnimationFrame(topoLoop);
+}
+function topoStart() { if (!topo.raf && topoLive()) topo.raf = requestAnimationFrame(topoLoop); }
+
+function topoInit() {
+  topo.cv = $("topoCv");
+  topo.ctx = topo.cv.getContext("2d");
+  const motion = matchMedia("(prefers-reduced-motion: reduce)");
+  topo.still = motion.matches;
+  motion.addEventListener("change", () => { topo.still = motion.matches; });
+  topoColors();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", topoColors);
+  new ResizeObserver(topoResize).observe(topo.cv);
+  topo.cv.addEventListener("pointerdown", topoDown);
+  topo.cv.addEventListener("pointermove", topoMove);
+  topo.cv.addEventListener("pointerup", topoUp);
+  topo.cv.addEventListener("pointercancel", topoUp);
+  topo.cv.addEventListener("pointerleave", () => { if (!topo.ptr) { topo.hover = null; topoLight(); $("topoTip").hidden = true; } });
+  topo.cv.addEventListener("wheel", (ev) => {
+    if (!ev.ctrlKey && !ev.metaKey) return;
+    ev.preventDefault();
+    const r = topo.cv.getBoundingClientRect();
+    topoZoom(Math.exp(-ev.deltaY * 0.01), ev.clientX - r.left, ev.clientY - r.top);
+  }, { passive: false });
+  $("topoIn").onclick = () => topoZoom(TOPO.ZOOM_STEP);
+  $("topoOut").onclick = () => topoZoom(1 / TOPO.ZOOM_STEP);
+  $("topoReset").onclick = () => { topo.fit = true; topo.ang = 0; topo.focus = null; topoLight(); topo.alpha = 1; };
+  $("topoOrbit").onclick = (e) => { topo.orbit = !topo.orbit; e.currentTarget.setAttribute("aria-pressed", String(topo.orbit)); };
 }
 
 /* ---------- stacks ---------- */
@@ -1647,9 +2138,11 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "r") load();
   else if (e.key === "a") toggleAuto();
 });
+document.addEventListener("visibilitychange", topoStart);
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.auto && S.token && !overlayOpen()) load(); });
 window.addEventListener("hashchange", () => { if (S.token && location.hash.slice(1) !== S.view) setView(location.hash.slice(1)); });
 
+topoInit();
 $("days").value = S.days;
 if (S.token) unlock();
 else { $("gate").hidden = false; $("tok").focus(); }
