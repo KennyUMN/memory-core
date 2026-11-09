@@ -14,8 +14,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
 from config import HOST, PORT, TOKENS
-from embedder import EmbedderClient, EmbeddingError, CircuitOpenError
-from database import redact_secrets, SupersedeError
+from embedder import EmbedderClient, EmbeddingError, CircuitOpenError, is_input_rejected
+from database import BULK_KINDS, redact_secrets, SupersedeError
 from usage import LoggedDatabase, current_agent, current_source
 import os
 import skills
@@ -25,6 +25,7 @@ MAX_SOURCE_CHARS = 500
 PACK_EPISODES = 5
 BACKFILL_INTERVAL = 60.0
 BACKFILL_BATCH_SIZE = 32
+DEFAULT_DELTA_LIMIT, MAX_DELTA_LIMIT = 50, 500
 
 # Initialize embedder & DB
 embedder = EmbedderClient()
@@ -53,6 +54,14 @@ async def embed_query_or_none(query: str) -> Optional[List[float]]:
         return None
 
 
+def mcp_author(agent_id: Optional[str]) -> str:
+    """The token's identity, with a caller-supplied agent_id kept only as a sub-label."""
+    token_agent = current_agent.get()
+    if not agent_id or agent_id == token_agent:
+        return token_agent
+    return f"{token_agent}/{agent_id[:MAX_SOURCE_CHARS]}"
+
+
 def source_ref(source: Optional[str]) -> Optional[Dict[str, str]]:
     """Provenance for a remembered fact, stored in the memories.source JSON column."""
     if not source or not source.strip():
@@ -66,7 +75,8 @@ async def build_context_pack(scope: str, query: Optional[str], k: int) -> Dict[s
     if query and query.strip():
         query = redact_secrets(query[:MAX_QUERY_CHARS])
         q_emb = await embed_query_or_none(query)
-        memories = await asyncio.to_thread(db.recall, query=query, query_embedding=q_emb, scope=scope, k=k)
+        memories = await asyncio.to_thread(db.recall, query=query, query_embedding=q_emb, scope=scope, k=k,
+                                           exclude_kinds=BULK_KINDS)
     else:
         memories = await asyncio.to_thread(db.recent, scope, None, k)
     episodes = await asyncio.to_thread(db.recent, scope, ["episode"], PACK_EPISODES)
@@ -79,6 +89,24 @@ async def build_context_pack(scope: str, query: Optional[str], k: int) -> Dict[s
     }
 
 
+# Memory ids the embedder rejected as input; skipped until restart so one bad row cannot stall the queue.
+backfill_rejected: set = set()
+
+
+async def embed_each(missing: List[Tuple[int, str]]) -> List[Tuple[int, List[float]]]:
+    """Embed rows one at a time after a batch was rejected, setting aside the rows that fail alone."""
+    pairs = []
+    for mem_id, text in missing:
+        try:
+            pairs.append((mem_id, (await embedder.embed_passages([text]))[0]))
+        except httpx.HTTPStatusError as exc:
+            if not is_input_rejected(exc):
+                raise
+            log.warning("embedder rejected memory #%s; skipping it until restart: %s", mem_id, exc)
+            backfill_rejected.add(mem_id)
+    return pairs
+
+
 async def backfill_embeddings_once() -> int:
     """Run one iteration of backfilling missing embeddings. Returns count of embeddings updated."""
     if getattr(embedder, "is_circuit_open", False):
@@ -86,17 +114,22 @@ async def backfill_embeddings_once() -> int:
         return 0
 
     try:
-        missing: List[Tuple[int, str]] = await asyncio.to_thread(db.missing_embeddings, BACKFILL_BATCH_SIZE)
+        missing: List[Tuple[int, str]] = await asyncio.to_thread(
+            db.missing_embeddings, BACKFILL_BATCH_SIZE, tuple(backfill_rejected))
         if not missing:
             return 0
 
-        ids = [item[0] for item in missing]
-        texts = [item[1] for item in missing]
+        try:
+            embeddings = await embedder.embed_passages([text for _, text in missing])
+            pairs = [(mem_id, emb) for (mem_id, _), emb in zip(missing, embeddings)]
+        except httpx.HTTPStatusError as exc:
+            if not is_input_rejected(exc):
+                raise
+            pairs = await embed_each(missing)
 
-        embeddings = await embedder.embed_passages(texts)
-        for mem_id, emb in zip(ids, embeddings):
+        for mem_id, emb in pairs:
             await asyncio.to_thread(db.set_embedding, mem_id, emb)
-        return len(ids)
+        return len(pairs)
     except CircuitOpenError:
         log.debug("Skipping backfill: circuit breaker is open")
         return 0
@@ -207,7 +240,10 @@ async def memory_remember(
     """
     if not facts:
         return {"saved_ids": [], "near_duplicates": [], "count": 0}
-    
+    too_long = [i for i, f in enumerate(facts[:MAX_FACTS]) if len(f) > MAX_FACT_CHARS]
+    if too_long:
+        raise ToolError(f"facts {too_long} exceed {MAX_FACT_CHARS} characters; split them into atomic facts")
+
     facts = [redact_secrets(f) for f in facts[:MAX_FACTS]]
     embedding_failed = False
     try:
@@ -226,7 +262,7 @@ async def memory_remember(
         supersedes=supersedes,
         tags=tags,
         source=source_ref(source),
-        created_by=agent_id or "mcp-agent"
+        created_by=mcp_author(agent_id)
     )
     if embedding_failed:
         res["embedding_pending"] = True
@@ -256,6 +292,9 @@ async def memory_search_docs(
         project: Optional project filter
         k: Top chunks to return
     """
+    if not query.strip():
+        return {"results": [], "count": 0}
+    query, k = redact_secrets(query[:MAX_QUERY_CHARS]), max(1, min(k, MAX_K))
     q_emb = await embed_query_or_none(query)
     results = await asyncio.to_thread(
         db.search_docs,
@@ -274,7 +313,10 @@ def memory_timeline(scope: str = "global", since: Optional[str] = None) -> List[
         scope: Scope to filter by ('global' or specific project)
         since: Optional ISO datetime string to filter episodes after a specific time
     """
-    return db.get_timeline(scope=scope, since=since)
+    try:
+        return db.get_timeline(scope=scope, since=since)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
 
 @mcp.tool()
 async def memory_context_pack(
@@ -293,16 +335,17 @@ async def memory_context_pack(
     return await build_context_pack(scope, query, k)
 
 @mcp.tool()
-def memory_delta(since: str, scope: str = "all") -> Dict[str, Any]:
+def memory_delta(since: str, scope: str = "all", limit: int = DEFAULT_DELTA_LIMIT) -> Dict[str, Any]:
     """What changed since a time: memories added and memories retired (with the reason).
-    Skips indexed skills and doc chunks.
+    Skips indexed skills and doc chunks. has_more_added / has_more_retired mean the list was cut at limit.
 
     Args:
         since: ISO 8601 time, e.g. '2026-11-01' or '2026-11-01T08:00:00Z'
         scope: 'all' (default), 'global', or 'project:<name>'
+        limit: Maximum rows per list (default 50, max 500)
     """
     try:
-        return db.delta(since=since, scope=scope)
+        return db.delta(since=since, scope=scope, limit=max(1, min(limit, MAX_DELTA_LIMIT)))
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -454,9 +497,10 @@ async def context_pack_api(req: ContextPackRequest, agent: str = Depends(verify_
 
 
 @app.get("/api/v1/delta")
-def delta_api(since: str, scope: str = "all", agent: str = Depends(verify_token)):
+def delta_api(since: str, scope: str = "all", limit: int = DEFAULT_DELTA_LIMIT,
+              agent: str = Depends(verify_token)):
     try:
-        return db.delta(since=since, scope=scope)
+        return db.delta(since=since, scope=scope, limit=max(1, min(limit, MAX_DELTA_LIMIT)))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

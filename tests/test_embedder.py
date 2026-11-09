@@ -169,3 +169,14 @@ async def test_empty_texts_returns_empty_list():
     res = await client.embed_passages([])
     assert res == []
     await client.aclose()
+
+
+async def test_rejected_input_does_not_open_circuit():
+    def handler(request):
+        return httpx.Response(413, json={"error": "input too long"})
+    client = EmbedderClient(transport=httpx.MockTransport(handler))
+    for _ in range(3):
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.embed_passages(["x"])
+    assert not client.is_circuit_open
+    await client.aclose()

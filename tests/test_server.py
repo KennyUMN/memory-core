@@ -122,8 +122,8 @@ class FakeDatabase:
         })
         return [{"id": 10, "content": "chunk text"}]
 
-    def missing_embeddings(self, limit: int = 32) -> List[Tuple[int, str]]:
-        return self.missing[:limit]
+    def missing_embeddings(self, limit: int = 32, exclude_ids=()) -> List[Tuple[int, str]]:
+        return [m for m in self.missing if m[0] not in exclude_ids][:limit]
 
     def set_embedding(self, memory_id: int, embedding: List[float]) -> None:
         self.set_embedding_calls.append((memory_id, embedding))
@@ -330,3 +330,77 @@ async def test_memory_remember_docstring():
     doc = memory_remember.__doc__
     assert doc is not None
     assert "duplicates at similarity >= 0.90 in the same scope are skipped (not inserted) and reported" in doc.lower()
+
+
+# --- audit fixes ---
+
+def http_error(status: int) -> httpx.HTTPStatusError:
+    req = httpx.Request("POST", "http://embedder")
+    return httpx.HTTPStatusError(f"{status}", request=req, response=httpx.Response(status, request=req))
+
+
+async def test_backfill_sets_aside_rows_the_embedder_rejects(fake_db, monkeypatch):
+    fake_db.missing = [(1, "good one"), (2, "too long"), (3, "good two")]
+    monkeypatch.setattr(server, "backfill_rejected", set())
+    monkeypatch.setattr(server.embedder, "_circuit_open_until", 0.0)
+
+    async def embed(texts):
+        if "too long" in texts:
+            raise http_error(413)
+        return [[0.1] * 1024 for _ in texts]
+
+    monkeypatch.setattr(server.embedder, "embed_passages", embed)
+    assert await backfill_embeddings_once() == 2
+    assert [mid for mid, _ in fake_db.set_embedding_calls] == [1, 3]
+    assert server.backfill_rejected == {2}
+
+    # The rejected row no longer blocks the queue.
+    fake_db.missing = [(2, "too long"), (4, "good three")]
+    assert await backfill_embeddings_once() == 1
+    assert fake_db.set_embedding_calls[-1][0] == 4
+
+
+async def test_mcp_remember_rejects_oversized_facts(fake_db):
+    from mcp.server.mcpserver.exceptions import ToolError
+    with pytest.raises(ToolError):
+        await memory_remember(facts=["x" * (server.MAX_FACT_CHARS + 1)])
+    assert fake_db.remember_calls == []
+
+
+async def test_mcp_remember_attributes_to_token_identity(fake_db, monkeypatch):
+    async def embed(texts):
+        return [[0.1] * 1024 for _ in texts]
+    monkeypatch.setattr(server.embedder, "embed_passages", embed)
+    token = current_agent.set("claude-code")
+    try:
+        await memory_remember(facts=["a"])
+        await memory_remember(facts=["b"], agent_id="claude-macbook")
+        await memory_remember(facts=["c"], agent_id="claude-code")
+    finally:
+        current_agent.reset(token)
+    assert [c["created_by"] for c in fake_db.remember_calls] == [
+        "claude-code", "claude-code/claude-macbook", "claude-code"]
+
+
+async def test_mcp_search_docs_clamps_k_and_skips_empty_query(fake_db, monkeypatch):
+    async def no_embedding(query):
+        return None
+    monkeypatch.setattr(server, "embed_query_or_none", no_embedding)
+    assert (await server.memory_search_docs(query="  "))["count"] == 0
+    await server.memory_search_docs(query="runbook", k=-1)
+    await server.memory_search_docs(query="runbook", k=10_000)
+    assert [c["k"] for c in fake_db.search_docs_calls] == [1, server.MAX_K]
+
+
+async def test_context_pack_query_excludes_bulk_kinds(tmp_path, monkeypatch):
+    real = database.MemoryDatabase(tmp_path / "pack.db")
+    real.remember(["deploy the homeserver with docker compose"], [None], kind="fact")
+    for i in range(5):
+        real.remember([f"skill: deploy helper {i} docker homeserver"], [None], kind="skill", scope="skills-archive")
+    monkeypatch.setattr(server, "db", real)
+
+    async def no_embedding(query):
+        return None
+    monkeypatch.setattr(server, "embed_query_or_none", no_embedding)
+    pack = await server.build_context_pack("all", "deploy docker homeserver", 8)
+    assert [m["kind"] for m in pack["memories"]] == ["fact"]

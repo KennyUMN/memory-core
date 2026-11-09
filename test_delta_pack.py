@@ -86,6 +86,28 @@ def test_recent_and_newest_in_scope():
     assert db.newest_in_scope("project:x") is not None
 
 
+
+def test_delta_reports_cut_off_batches():
+    db = fresh_db()
+    db.remember(facts=[f"fact {i}" for i in range(5)], embeddings=[None] * 5, created_by="test")
+    out = db.delta(AN_HOUR_AGO, limit=3)
+    assert len(out["added"]) == 3 and out["has_more_added"] is True
+    assert [r["id"] for r in out["added"]] == sorted(r["id"] for r in out["added"])
+    assert db.delta(AN_HOUR_AGO, limit=5)["has_more_added"] is False
+
+
+def test_timeline_accepts_z_and_offset_times():
+    db = fresh_db()
+    eid = save(db, "session summary", kind="episode")
+    stamp = db.recent("global", ["episode"], 1)[0]["valid_from"]
+    assert [e["id"] for e in db.get_timeline(since=stamp[:19] + "Z")] == [eid]
+    assert db.get_timeline(since="2999-01-01T00:00:00+07:00") == []
+    try:
+        db.get_timeline(since="yesterday")
+    except ValueError:
+        return
+    raise AssertionError("accepted a non-ISO since")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

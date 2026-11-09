@@ -4,7 +4,7 @@ import re
 import logging
 from datetime import datetime, timezone
 from contextlib import contextmanager
-from typing import List, Dict, Any, Iterator, Optional, Tuple
+from typing import List, Dict, Any, Iterator, Optional, Sequence, Tuple
 import array
 import math
 from config import DB_PATH
@@ -399,7 +399,8 @@ class MemoryDatabase:
         scope: Optional[str] = None,
         kinds: Optional[List[str]] = None,
         k: int = 8,
-        include_superseded: bool = False
+        include_superseded: bool = False,
+        exclude_kinds: Optional[Sequence[str]] = None
     ) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
             where_clauses = []
@@ -411,6 +412,9 @@ class MemoryDatabase:
                 placeholders = ",".join("?" * len(kinds))
                 where_clauses.append(f"kind IN ({placeholders})")
                 params.extend(kinds)
+            if exclude_kinds:
+                where_clauses.append(f"kind NOT IN ({','.join('?' * len(exclude_kinds))})")
+                params.extend(exclude_kinds)
 
             # Scope filtering:
             # scope=None or "all" applies no scope filter (searches across all scopes).
@@ -526,21 +530,33 @@ class MemoryDatabase:
             ).fetchone()[0]
 
     def delta(self, since: str, scope: Optional[str] = None, limit: int = 50) -> Dict[str, Any]:
-        """Memories added and retired since a time, oldest first, skipping bulk kinds."""
+        """Memories added and retired since a time, oldest first, skipping bulk kinds.
+
+        One remember() call stamps every fact with the same time, so a later `since` cannot page
+        past a cut-off batch; has_more_* tells the caller to raise `limit` instead.
+        """
         since_iso = parse_since(since)
         clause, params = scope_filter(scope)
         bulk = ",".join("?" * len(BULK_KINDS))
         base = f"FROM memories WHERE kind NOT IN ({bulk}) AND {clause}"
         with self._get_conn() as conn:
             added = conn.execute(
-                f"SELECT id, kind, scope, content, created_by, valid_from {base} AND valid_from >= ? ORDER BY valid_from LIMIT ?",
-                [*BULK_KINDS, *params, since_iso, limit],
+                f"SELECT id, kind, scope, content, created_by, valid_from {base} AND valid_from >= ? "
+                "ORDER BY valid_from, id LIMIT ?",
+                [*BULK_KINDS, *params, since_iso, limit + 1],
             ).fetchall()
             retired = conn.execute(
-                f"SELECT id, kind, scope, content, valid_to, retired_reason {base} AND valid_to >= ? ORDER BY valid_to LIMIT ?",
-                [*BULK_KINDS, *params, since_iso, limit],
+                f"SELECT id, kind, scope, content, valid_to, retired_reason {base} AND valid_to >= ? "
+                "ORDER BY valid_to, id LIMIT ?",
+                [*BULK_KINDS, *params, since_iso, limit + 1],
             ).fetchall()
-        return {"since": since_iso, "added": [dict(r) for r in added], "retired": [dict(r) for r in retired]}
+        return {
+            "since": since_iso,
+            "added": [dict(r) for r in added[:limit]],
+            "retired": [dict(r) for r in retired[:limit]],
+            "has_more_added": len(added) > limit,
+            "has_more_retired": len(retired) > limit,
+        }
 
     def recent(self, scope: Optional[str] = None, kinds: Optional[List[str]] = None, limit: int = 8) -> List[Dict[str, Any]]:
         """Newest active memories visible from a scope, skipping bulk kinds unless kinds names them."""
@@ -557,11 +573,12 @@ class MemoryDatabase:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def missing_embeddings(self, limit: int = 32) -> List[Tuple[int, str]]:
+    def missing_embeddings(self, limit: int = 32, exclude_ids: Sequence[int] = ()) -> List[Tuple[int, str]]:
+        skip = f" AND id NOT IN ({','.join('?' * len(exclude_ids))})" if exclude_ids else ""
         with self._get_conn() as conn:
             rows = conn.execute(
-                "SELECT id, content FROM memories WHERE valid_to IS NULL AND embedding IS NULL ORDER BY id ASC LIMIT ?",
-                (limit,)
+                f"SELECT id, content FROM memories WHERE valid_to IS NULL AND embedding IS NULL{skip} ORDER BY id ASC LIMIT ?",
+                (*exclude_ids, limit)
             ).fetchall()
             return [(r["id"], r["content"]) for r in rows]
 
@@ -582,7 +599,7 @@ class MemoryDatabase:
                 params.append(scope)
             if since:
                 sql += " AND valid_from >= ?"
-                params.append(since)
+                params.append(parse_since(since))
             sql += " ORDER BY valid_from ASC"
 
             rows = conn.execute(sql, params).fetchall()

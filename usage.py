@@ -103,10 +103,11 @@ class LoggedDatabase(MemoryDatabase):
         with self._get_conn() as conn:
             return conn.execute(sql, params).fetchone()[0]
 
-    def recall(self, query, query_embedding, scope=None, kinds=None, k=8, include_superseded=False):
+    def recall(self, query, query_embedding, scope=None, kinds=None, k=8, include_superseded=False,
+               exclude_kinds=None):
         start = time.perf_counter()
         results = super().recall(query, query_embedding, scope=scope, kinds=kinds, k=k,
-                                 include_superseded=include_superseded)
+                                 include_superseded=include_superseded, exclude_kinds=exclude_kinds)
         self._log(
             "search_docs" if kinds == ["doc_chunk"] else "recall",
             scope=scope, query=query, k=k, ids=[r["id"] for r in results],

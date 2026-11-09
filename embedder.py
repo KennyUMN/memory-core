@@ -11,6 +11,12 @@ DEFAULT_TASK = "Given a question, retrieve relevant passages that answer the que
 EMBEDDING_TIMEOUT = float(os.getenv("EMBEDDING_TIMEOUT", "8.0"))
 CIRCUIT_BREAKER_FAILURES = 2
 CIRCUIT_BREAKER_RESET_TIMEOUT = 60.0
+# The service rejected the input itself (too long, malformed); it is still healthy.
+INPUT_REJECTED_STATUSES = (400, 413, 422)
+
+
+def is_input_rejected(exc: BaseException) -> bool:
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in INPUT_REJECTED_STATUSES
 
 
 class EmbeddingError(RuntimeError):
@@ -121,9 +127,10 @@ class EmbedderClient:
             self._circuit_open_until = 0.0
             return all_embeddings
         except Exception as exc:
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= self.failure_threshold:
-                self._circuit_open_until = time.monotonic() + self.recovery_timeout
+            if not is_input_rejected(exc):
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= self.failure_threshold:
+                    self._circuit_open_until = time.monotonic() + self.recovery_timeout
             if isinstance(exc, (httpx.HTTPError, EmbeddingError)):
                 raise
             raise EmbeddingError(f"Embedding failed: {exc}") from exc
