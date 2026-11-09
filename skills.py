@@ -354,9 +354,14 @@ async def remove_source(db, slug: str) -> Dict[str, Any]:
 
 
 def resolve_skill_dir(rel: str) -> Path:
-    """Map a `<slug>/<dir>` path from a skill row to its folder, refusing anything outside SOURCES_DIR."""
+    """Map a skill path to its folder, refusing anything outside SOURCES_DIR.
+
+    Accepts `<slug>/<dir>` or the full `path:` a skill row advertises (CLIENT_ROOT/.../SKILL.md).
+    """
     base = SOURCES_DIR.resolve()
-    target = (base / (rel or "").strip("/")).resolve()
+    rel = (rel or "").strip()
+    rel = rel.removeprefix(CLIENT_ROOT).strip("/").removesuffix("SKILL.md").strip("/")
+    target = (base / rel).resolve()
     if target == base or base not in target.parents:
         raise ValueError("path is outside the skill sources")
     if not (target / "SKILL.md").is_file():

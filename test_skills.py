@@ -97,6 +97,8 @@ def test_bundle():
             raise AssertionError(f"accepted {bad!r}")
         except (ValueError, skills.SourceNotFound):
             pass
+    advertised = skills.row_text("x", "d", "b__b", "skills/x").split("path: ")[1]
+    assert skills.resolve_skill_dir(advertised) == skills.resolve_skill_dir("b__b/skills/x")
     out = skills.build_bundle(skills.resolve_skill_dir("b__b/skills/x"))
     with tarfile.open(out) as t:
         names = sorted(t.getnames())
