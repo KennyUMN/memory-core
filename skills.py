@@ -134,7 +134,23 @@ def discover(root: Path) -> List[Dict[str, str]]:
         rel = Path(dirpath).relative_to(root).as_posix()
         name = meta.get("name") or (Path(dirpath).name if rel != "." else root.name)
         found.append({"name": name, "desc": meta.get("description", ""), "dir": rel})
-    return found
+    return _dedupe(found)
+
+
+def _copy_rank(rel: str) -> Tuple[bool, bool, int, str]:
+    """Lower is more likely the original: outside docs/, outside dot-folders, then shallowest."""
+    parts = rel.split("/")
+    return ("docs" in parts, any(p.startswith(".") and p != "." for p in parts), len(parts), rel)
+
+
+def _dedupe(found: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Keep one folder per skill name; repos often ship translated or per-tool copies."""
+    best: Dict[str, Dict[str, str]] = {}
+    for s in found:
+        cur = best.get(s["name"])
+        if cur is None or _copy_rank(s["dir"]) < _copy_rank(cur["dir"]):
+            best[s["name"]] = s
+    return sorted(best.values(), key=lambda s: s["dir"])
 
 
 # ---------- git ----------
