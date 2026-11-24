@@ -608,3 +608,23 @@ def test_supersede_with_duplicate_points_at_existing_memory(tmp_path):
     assert res["skipped"][0]["existing_id"] == current_id
     assert res["superseded"] is True
     assert _is_active(db, old_id) == (False, f"superseded by #{current_id}")
+
+
+def test_bm25_recall_respects_scope_kind_and_retired_filters(tmp_path):
+    """BM25-only recall (no query vector) applies every recall filter inside the FTS query."""
+    db = MemoryDatabase(tmp_path / "test_fts_filters.db")
+    db.remember(["zebra global note"], [None], scope="global")
+    db.remember(["zebra alpha note"], [None], scope="project:alpha")
+    db.remember(["zebra beta note"], [None], scope="project:beta")
+    db.remember(["zebra skill note"], [None], scope="global", kind="skill")
+    retired = db.remember(["zebra retired note"], [None], scope="global")
+    assert db.forget(retired["saved_ids"][0], reason="test")
+
+    contents = {r["content"] for r in db.recall("zebra", None, scope="project:alpha", k=10)}
+    assert "zebra alpha note" in contents
+    assert "zebra global note" in contents
+    assert "zebra beta note" not in contents
+    assert "zebra retired note" not in contents
+
+    skills = db.recall("zebra", None, scope="all", k=10, kinds=["skill"])
+    assert [r["content"] for r in skills] == ["zebra skill note"]

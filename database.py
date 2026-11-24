@@ -14,6 +14,11 @@ DUPLICATE_THRESHOLD = 0.90
 # Bulk kinds (indexed skills, doc chunks) drown out facts in delta and context packs.
 BULK_KINDS = ("skill", "doc_chunk")
 SECONDS_PER_DAY = 86400
+# Reciprocal Rank Fusion. Vector ranks weigh double: on a 36-query eval
+# (eval_recall.py) this raised MRR from 0.878 to 0.897 over equal weights.
+RRF_K = 60
+RRF_VECTOR_WEIGHT = 2.0
+RRF_BM25_WEIGHT = 1.0
 
 
 def parse_since(value: str) -> str:
@@ -461,11 +466,14 @@ class MemoryDatabase:
             fts_ranks = {}
             if terms:
                 fts_query = " OR ".join(terms)
+                # JOIN instead of "rowid IN (subquery)": same rows, but the subquery
+                # form made FTS5 scan every match (~1 s on 2k rows vs ~10 ms).
+                fts_filter = (" AND " + " AND ".join(where_clauses)) if where_clauses else ""
                 fts_sql = f"""
-                    SELECT rowid, rank FROM memories_fts
-                    WHERE memories_fts MATCH ?
-                      AND rowid IN (SELECT id FROM memories {where_sql})
-                    ORDER BY rank
+                    SELECT memories_fts.rowid AS rowid, memories_fts.rank AS rank
+                    FROM memories_fts JOIN memories ON memories.id = memories_fts.rowid
+                    WHERE memories_fts MATCH ?{fts_filter}
+                    ORDER BY memories_fts.rank
                     LIMIT 50
                 """
                 try:
@@ -485,7 +493,7 @@ class MemoryDatabase:
             for mid in all_match_ids:
                 v_rank = vector_ranks.get(mid, 1000)
                 f_rank = fts_ranks.get(mid, 1000)
-                rrf_score = (1.0 / (60 + v_rank)) + (1.0 / (60 + f_rank))
+                rrf_score = (RRF_VECTOR_WEIGHT / (RRF_K + v_rank)) + (RRF_BM25_WEIGHT / (RRF_K + f_rank))
                 
                 r = cand_rows[mid]
                 trust_bonus = 0.005 if r["verified_at"] else 0.0
