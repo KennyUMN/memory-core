@@ -15,6 +15,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from config import HOST, PORT, TOKENS
 from embedder import EmbedderClient, EmbeddingError, CircuitOpenError, is_input_rejected
+from reranker import RerankerClient, RerankError, RERANK_CANDIDATES
 from database import BULK_KINDS, redact_secrets, SupersedeError
 from usage import LoggedDatabase, current_agent, current_source
 import os
@@ -29,6 +30,7 @@ DEFAULT_DELTA_LIMIT, MAX_DELTA_LIMIT = 50, 500
 
 # Initialize embedder & DB
 embedder = EmbedderClient()
+reranker = RerankerClient()
 db = LoggedDatabase()
 skills.ensure_schema(db)
 log = logging.getLogger("memory-core")
@@ -54,6 +56,22 @@ async def embed_query_or_none(query: str) -> Optional[List[float]]:
         return None
 
 
+async def recall_ranked(query: str, q_emb: Optional[List[float]], k: int, **filters: Any) -> List[Dict[str, Any]]:
+    """Hybrid recall, reordered by the cross-encoder reranker when it is configured and healthy.
+
+    Falls back to the fused RRF order when the reranker is off or fails."""
+    if not reranker.enabled:
+        return await asyncio.to_thread(db.recall, query=query, query_embedding=q_emb, k=k, **filters)
+    candidates = await asyncio.to_thread(db.recall, query=query, query_embedding=q_emb,
+                                         k=max(k, RERANK_CANDIDATES), **filters)
+    try:
+        ranked = await reranker.rerank(query, [c["content"] for c in candidates])
+    except RerankError as exc:
+        log.warning("rerank unavailable, keeping RRF order: %s", exc)
+        return candidates[:k]
+    return [{**candidates[i], "rerank_score": round(score, 4)} for i, score in ranked[:k]]
+
+
 def mcp_author(agent_id: Optional[str]) -> str:
     """The token's identity, with a caller-supplied agent_id kept only as a sub-label."""
     token_agent = current_agent.get()
@@ -75,8 +93,7 @@ async def build_context_pack(scope: str, query: Optional[str], k: int) -> Dict[s
     if query and query.strip():
         query = redact_secrets(query[:MAX_QUERY_CHARS])
         q_emb = await embed_query_or_none(query)
-        memories = await asyncio.to_thread(db.recall, query=query, query_embedding=q_emb, scope=scope, k=k,
-                                           exclude_kinds=BULK_KINDS)
+        memories = await recall_ranked(query, q_emb, k, scope=scope, exclude_kinds=BULK_KINDS)
     else:
         memories = await asyncio.to_thread(db.recent, scope, None, k)
     episodes = await asyncio.to_thread(db.recent, scope, ["episode"], PACK_EPISODES)
@@ -184,7 +201,8 @@ async def memory_recall(
     include_superseded: bool = False
 ) -> Dict[str, Any]:
     """Recall relevant facts, episodes, procedures, or document chunks.
-    Performs hybrid BM25 + Vector search fused with Reciprocal Rank Fusion (RRF).
+    Performs hybrid BM25 + Vector search fused with Reciprocal Rank Fusion (RRF),
+    then reorders the top candidates with a cross-encoder reranker when one is configured.
     Each result carries age_days; newest_in_scope shows how fresh this scope's memory is.
     
     Args:
@@ -200,15 +218,8 @@ async def memory_recall(
     query, k = redact_secrets(query[:MAX_QUERY_CHARS]), max(1, min(k, MAX_K))
     # Generate query embedding with task instruction
     q_emb = await embed_query_or_none(query)
-    results = await asyncio.to_thread(
-        db.recall,
-        query=query,
-        query_embedding=q_emb,
-        scope=scope,
-        kinds=kinds,
-        k=k,
-        include_superseded=include_superseded
-    )
+    results = await recall_ranked(query, q_emb, k, scope=scope, kinds=kinds,
+                                  include_superseded=include_superseded)
     return {
         "results": results,
         "count": len(results),
@@ -403,6 +414,7 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
         await embedder.aclose()
+        await reranker.aclose()
 
 
 app = FastAPI(title="Memory Core API", version="1.0.0", lifespan=lifespan,
@@ -478,15 +490,8 @@ async def remember_api(req: RememberRequest, agent: str = Depends(verify_token))
 async def recall_api(req: RecallRequest, agent: str = Depends(verify_token)):
     query = redact_secrets(req.query)
     q_emb = await embed_query_or_none(query)
-    results = await asyncio.to_thread(
-        db.recall,
-        query=query,
-        query_embedding=q_emb,
-        scope=req.scope,
-        kinds=req.kinds,
-        k=req.k,
-        include_superseded=req.include_superseded
-    )
+    results = await recall_ranked(query, q_emb, req.k, scope=req.scope, kinds=req.kinds,
+                                  include_superseded=req.include_superseded)
     return {"results": results, "count": len(results),
             "newest_in_scope": await asyncio.to_thread(db.newest_in_scope, req.scope)}
 

@@ -13,6 +13,11 @@ EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "qwen3-embedding-0.6b")
 EMBEDDING_DIM = 1024
 
+# Reranker (OpenRouter /rerank); empty key turns reranking off
+RERANK_API_URL = os.getenv("RERANK_API_URL", "https://openrouter.ai/api/v1/rerank")
+RERANK_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+RERANK_MODEL = os.getenv("RERANK_MODEL", "qwen/qwen3-reranker-8b")
+
 # Server Bindings
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8420"))
